@@ -12,8 +12,9 @@ spec:
     model:
       modelFormat:
         name: huggingface
-      storageUri: "hf://mistralai/Mistral-7B-Instruct-v0.3"
       args:
+        - "--model_name=mistral-7b"
+        - "--model_id=mistralai/Mistral-7B-Instruct-v0.3"
         - "--backend=vllm"
         - "--max-model-len=8192"
         - "--dtype=float16"

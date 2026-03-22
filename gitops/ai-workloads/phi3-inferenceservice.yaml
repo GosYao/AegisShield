@@ -11,8 +11,9 @@ spec:
     model:
       modelFormat:
         name: huggingface
-      storageUri: "hf://microsoft/Phi-3-mini-4k-instruct"
       args:
+        - "--model_name=phi-3-mini"
+        - "--model_id=microsoft/Phi-3-mini-4k-instruct"
         - "--backend=vllm"
         - "--max-model-len=4096"
         - "--dtype=float16"
