@@ -12,11 +12,11 @@ spec:
       modelFormat:
         name: huggingface
       args:
-        - "--model_name=phi-3-mini"
         - "--model_id=microsoft/Phi-3-mini-4k-instruct"
         - "--backend=vllm"
         - "--max-model-len=4096"
         - "--dtype=float16"
+        - "--trust_remote_code=True"
       env:
         - name: HF_TOKEN
           valueFrom:

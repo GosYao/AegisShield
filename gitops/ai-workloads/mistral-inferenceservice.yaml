@@ -13,7 +13,6 @@ spec:
       modelFormat:
         name: huggingface
       args:
-        - "--model_name=mistral-7b"
         - "--model_id=mistralai/Mistral-7B-Instruct-v0.3"
         - "--backend=vllm"
         - "--max-model-len=8192"
@@ -27,11 +26,11 @@ spec:
       resources:
         requests:
           cpu: "2"
-          memory: "12Gi"
+          memory: "10Gi"
           nvidia.com/gpu: "1"
         limits:
           cpu: "4"
-          memory: "16Gi"
+          memory: "13Gi"
           nvidia.com/gpu: "1"
     nodeSelector:
       pool: gpu

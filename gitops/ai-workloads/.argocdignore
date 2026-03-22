@@ -1,0 +1,5 @@
+# hf-secret.yaml is excluded from ArgoCD sync.
+# The HuggingFace token secret must be created manually before InferenceServices deploy:
+#   kubectl create secret generic hf-secret --from-literal=HF_TOKEN=<token> -n aegis-mesh
+# See CLAUDE.md deployment step 5.
+hf-secret.yaml
