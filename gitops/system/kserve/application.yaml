@@ -5,17 +5,20 @@ metadata:
   namespace: argocd
 spec:
   project: default
-  source:
-    repoURL: https://kserve.github.io/kserve
-    chart: kserve
-    targetRevision: v0.13.0
-    helm:
-      values: |
-        kserve:
-          controller:
-            image: kserve/kserve-controller
-          modelmesh:
-            enabled: false
+  sources:
+    - repoURL: oci://ghcr.io/kserve/charts
+      chart: kserve-crd
+      targetRevision: v0.13.0
+    - repoURL: oci://ghcr.io/kserve/charts
+      chart: kserve
+      targetRevision: v0.13.0
+      helm:
+        values: |
+          kserve:
+            controller:
+              image: kserve/kserve-controller
+            modelmesh:
+              enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: kserve
