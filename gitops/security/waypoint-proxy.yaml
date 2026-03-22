@@ -1,0 +1,17 @@
+# Waypoint proxy for L7 policy enforcement within Istio Ambient mode.
+# The waypoint is a dedicated Envoy proxy pod for the namespace —
+# it handles AuthorizationPolicies and other L7 rules that ztunnel cannot.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: aegis-waypoint
+  namespace: aegis-mesh
+  labels:
+    # This label tells Istio to use this Gateway as the namespace-scope waypoint
+    istio.io/waypoint-for: namespace
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE

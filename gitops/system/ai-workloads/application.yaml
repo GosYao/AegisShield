@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-workloads
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_ORG/AegisShield.git
+    targetRevision: main
+    path: gitops/ai-workloads
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: aegis-mesh
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false   # Namespace created in step 4 before ArgoCD syncs this
+      - ServerSideApply=true

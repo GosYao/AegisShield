@@ -1,0 +1,69 @@
+# L4 Cilium network policy for the Agent pod.
+# Implements the principle of least-privilege egress:
+# the agent may ONLY reach kube-dns, the supervisor, internal KServe, and Google APIs.
+# Any other egress (e.g., to an attacker-controlled endpoint) is silently dropped.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: agent-egress-policy
+  namespace: aegis-mesh
+spec:
+  endpointSelector:
+    matchLabels:
+      app: aegis-agent
+
+  # INGRESS: only accept traffic from FortiAIGate (the public entry point)
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: fortiaigate
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+  # EGRESS allowlist — everything not listed is denied
+  egress:
+    # DNS resolution (kube-dns in kube-system)
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # Supervisor — pre-action intent check
+    - toEndpoints:
+        - matchLabels:
+            app: aegis-supervisor
+      toPorts:
+        - ports:
+            - port: "8081"
+              protocol: TCP
+
+    # KServe / Mistral inference endpoint (internal cluster DNS)
+    - toFQDNs:
+        - matchPattern: "*.aegis-mesh.svc.cluster.local"
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+
+    # Google APIs — GCS + Workload Identity metadata / token exchange
+    - toFQDNs:
+        - matchName: "storage.googleapis.com"
+        - matchName: "oauth2.googleapis.com"
+        - matchName: "iamcredentials.googleapis.com"
+        - matchName: "metadata.google.internal"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

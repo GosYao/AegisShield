@@ -1,0 +1,40 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: mistral-7b
+  namespace: aegis-mesh
+  annotations:
+    # No sidecar — ztunnel handles mTLS in ambient mode
+    sidecar.istio.io/inject: "false"
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: huggingface
+      storageUri: "hf://mistralai/Mistral-7B-Instruct-v0.3"
+      args:
+        - "--backend=vllm"
+        - "--max-model-len=8192"
+        - "--dtype=float16"
+      env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-secret
+              key: HF_TOKEN
+      resources:
+        requests:
+          cpu: "2"
+          memory: "12Gi"
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "4"
+          memory: "16Gi"
+          nvidia.com/gpu: "1"
+    nodeSelector:
+      pool: gpu
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "present"
+        effect: "NoSchedule"

@@ -1,0 +1,67 @@
+# FortiAIGate 8.0.0 Helm values
+# All YOUR_* placeholders must be replaced before deploying.
+# See CLAUDE.md ## FortiAIGate Deployment & Configuration for the full onboarding guide.
+
+global:
+  # Private registry where all FortiAIGate images have been pushed.
+  # Images must be pre-loaded from official Fortinet TAR archives.
+  imageRegistry: us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo
+  imageTag: v8.0.0   # e.g. V8.0.0-build0004
+
+  # License mapping: one .lic file per GKE worker node.
+  # Get node names from: kubectl get nodes
+  # Place .lic files in: gitops/security/fortiaigate/files/licenses/
+  licenses:
+    "gke-aegis-cluster-system-pool-REPLACE_NODE1": "node1.lic"
+    "gke-aegis-cluster-system-pool-REPLACE_NODE2": "node2.lic"
+    # Add one entry per additional worker node
+
+# ── GPU ──────────────────────────────────────────────────────────────────────
+fortiaigate:
+  gpu:
+    enabled: true     # Enables NVIDIA L4 acceleration for AI scanners (Triton)
+  nodeSelector:
+    pool: gpu         # Matches the GKE gpu-pool label set by Terraform
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+# FortiAIGate is accessed via Ingress — it is NOT a LoadBalancer service.
+# An Ingress Controller (nginx or GKE native) must be installed before syncing.
+ingress:
+  enabled: true
+  className: nginx    # Change to "gce" if using GKE native Ingress
+  host: fortiaigate.YOUR_DOMAIN
+  tls:
+    - secretName: fortiaigate-tls
+      hosts:
+        - fortiaigate.YOUR_DOMAIN
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+# FortiAIGate uses PostgreSQL for policy and audit storage.
+postgresql:
+  primary:
+    persistence:
+      enabled: true
+      storageClass: YOUR_RWX_STORAGECLASS   # Must support ReadWriteMany
+      size: 8Gi
+
+# ── Redis ─────────────────────────────────────────────────────────────────────
+# Used for session caching and rate limiting.
+redis:
+  master:
+    persistence:
+      enabled: true
+      storageClass: YOUR_RWX_STORAGECLASS
+      size: 4Gi
+
+# ── Triton Inference Server ───────────────────────────────────────────────────
+# Hosts the AI scanner models. triton-models and custom-triton are init containers
+# that load model artifacts. Keep their image tags exactly as shipped by Fortinet.
+triton:
+  models:
+    image:
+      # Do NOT rename this tag — Helm chart references it by exact value
+      tag: KEEP_ORIGINAL_FORTINET_TAG
+  customTriton:
+    image:
+      # Do NOT rename this tag — Helm chart references it by exact value
+      tag: KEEP_ORIGINAL_FORTINET_TAG

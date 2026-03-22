@@ -1,0 +1,39 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: phi-3-mini
+  namespace: aegis-mesh
+  annotations:
+    sidecar.istio.io/inject: "false"
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: huggingface
+      storageUri: "hf://microsoft/Phi-3-mini-4k-instruct"
+      args:
+        - "--backend=vllm"
+        - "--max-model-len=4096"
+        - "--dtype=float16"
+      env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-secret
+              key: HF_TOKEN
+      resources:
+        requests:
+          cpu: "2"
+          memory: "8Gi"
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "4"
+          memory: "10Gi"
+          nvidia.com/gpu: "1"
+    nodeSelector:
+      pool: gpu
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "present"
+        effect: "NoSchedule"

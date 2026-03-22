@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegis-mesh
+  labels:
+    # Enroll this namespace in Istio Ambient mode.
+    # ztunnel handles mTLS at L4; no sidecars needed.
+    istio.io/dataplane-mode: ambient
+    # Explicitly disable sidecar injection — ambient and sidecar modes are mutually exclusive
+    istio-injection: disabled

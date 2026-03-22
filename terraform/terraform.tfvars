@@ -1,0 +1,5 @@
+project_id      = "gyao-bde-demo"
+region          = "us-central1"
+zone            = "us-central1-a"
+cluster_name    = "aegis-cluster"
+gcs_bucket_name = "aegis-financial-data"

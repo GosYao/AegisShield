@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.cilium.io)",
+      "WebFetch(domain:kserve.github.io)",
+      "WebFetch(domain:docs.cloud.google.com)",
+      "WebFetch(domain:registry.terraform.io)",
+      "WebFetch(domain:argo-cd.readthedocs.io)",
+      "WebFetch(domain:istio.io)"
+    ]
+  }
+}

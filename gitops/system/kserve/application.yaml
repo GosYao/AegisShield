@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kserve
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://kserve.github.io/kserve
+    chart: kserve
+    targetRevision: v0.13.0
+    helm:
+      values: |
+        kserve:
+          controller:
+            image: kserve/kserve-controller
+          modelmesh:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kserve
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

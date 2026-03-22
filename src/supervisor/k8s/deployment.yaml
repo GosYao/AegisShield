@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-supervisor
+  namespace: aegis-mesh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aegis-supervisor
+  template:
+    metadata:
+      labels:
+        app: aegis-supervisor
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: supervisor-ksa
+      containers:
+        - name: supervisor
+          image: us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-supervisor:latest
+          ports:
+            - containerPort: 8081
+          env:
+            - name: PHI3_ENDPOINT
+              value: "http://phi-3-mini-predictor.aegis-mesh.svc.cluster.local/openai/v1"
+            - name: AGENT_NAMESPACE
+              value: "aegis-mesh"
+            - name: AGENT_LABEL_SELECTOR
+              value: "app=aegis-agent"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+      nodeSelector:
+        pool: system

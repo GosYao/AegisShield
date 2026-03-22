@@ -1,0 +1,34 @@
+# ArgoCD Application for FortiAIGate 8.0.0
+# FortiAIGate is a multi-component Helm chart — NOT a simple Deployment manifest.
+# Components: API, WebUI, Core, 9 AI Scanners, Triton, PostgreSQL, Redis, LicenseManager, LogD.
+#
+# Prerequisites before syncing:
+#   1. All FortiAIGate images loaded from TAR archives and pushed to YOUR_REGISTRY
+#   2. One .lic file per worker node placed in files/licenses/ and mapped in values.yaml
+#   3. RWX StorageClass available in cluster
+#   4. Ingress Controller installed
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fortiaigate
+  namespace: argocd
+spec:
+  project: default
+  source:
+    # Replace with the actual Helm chart repository URL from Fortinet.
+    # The chart is typically obtained from Fortinet support along with the license.
+    repoURL: YOUR_FORTINET_HELM_REPO
+    chart: fortiaigate
+    targetRevision: "8.0.0"
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fortiaigate
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: false        # Never auto-prune FortiAIGate — manual gate for safety
+      selfHeal: false

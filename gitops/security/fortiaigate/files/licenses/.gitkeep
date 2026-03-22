@@ -1,0 +1,3 @@
+# Place FortiAIGate .lic files here — one per GKE worker node.
+# Obtain from FortiCare. Never commit actual license files to version control.
+# Map file names to node names in values.yaml under global.licenses.

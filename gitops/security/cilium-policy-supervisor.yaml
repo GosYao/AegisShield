@@ -1,0 +1,52 @@
+# L4 Cilium network policy for the Supervisor pod.
+# The supervisor only needs to reach phi-3-mini and the Kubernetes API server.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: supervisor-egress-policy
+  namespace: aegis-mesh
+spec:
+  endpointSelector:
+    matchLabels:
+      app: aegis-supervisor
+
+  # INGRESS: accept calls from the agent only
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: aegis-agent
+      toPorts:
+        - ports:
+            - port: "8081"
+              protocol: TCP
+
+  egress:
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+
+    # phi-3-mini KServe endpoint for intent classification
+    - toFQDNs:
+        - matchPattern: "*.aegis-mesh.svc.cluster.local"
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+
+    # Kubernetes API server — required for pod deletion enforcement
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

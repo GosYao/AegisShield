@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-agent
+  namespace: aegis-mesh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aegis-agent
+  template:
+    metadata:
+      labels:
+        app: aegis-agent
+      annotations:
+        # Disable sidecar injection — ztunnel provides mTLS in ambient mode
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: agent-ksa
+      containers:
+        - name: agent
+          image: us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-agent:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GCS_BUCKET
+              value: "aegis-financial-data"
+            - name: MISTRAL_ENDPOINT
+              value: "http://mistral-7b-predictor.aegis-mesh.svc.cluster.local/openai/v1"
+            - name: SUPERVISOR_URL
+              value: "http://supervisor-svc.aegis-mesh.svc.cluster.local:8081"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      nodeSelector:
+        pool: system
