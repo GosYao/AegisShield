@@ -8,9 +8,11 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR_ORG/AegisShield.git
+    repoURL: https://github.com/GosYao/AegisShield.git
     targetRevision: main
     path: gitops/system
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
