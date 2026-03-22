@@ -13,7 +13,7 @@ spec:
       modelFormat:
         name: huggingface
       args:
-        - "--model_id=mistralai/Mistral-7B-Instruct-v0.3"
+        - "--model_id=mistralai/Mistral-7B-Instruct-v0.2"
         - "--backend=vllm"
         - "--max-model-len=8192"
         - "--dtype=float16"

@@ -16,7 +16,7 @@ spec:
         - "--backend=vllm"
         - "--max-model-len=4096"
         - "--dtype=float16"
-        - "--trust_remote_code=True"
+        - "--trust_remote_code"
       env:
         - name: HF_TOKEN
           valueFrom:
