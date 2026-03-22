@@ -6,6 +6,7 @@ metadata:
   annotations:
     # No sidecar — ztunnel handles mTLS in ambient mode
     sidecar.istio.io/inject: "false"
+    serving.kserve.io/deploymentMode: RawDeployment
 spec:
   predictor:
     model:

@@ -5,6 +5,7 @@ metadata:
   namespace: aegis-mesh
   annotations:
     sidecar.istio.io/inject: "false"
+    serving.kserve.io/deploymentMode: RawDeployment
 spec:
   predictor:
     model:
