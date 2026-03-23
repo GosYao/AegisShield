@@ -20,7 +20,10 @@ spec:
   source:
     repoURL: https://github.com/GosYao/AegisShield.git
     targetRevision: main
-    path: gitops/security/fortiaigate/chart   # Helm chart committed to Git repo
+    path: gitops/security/fortiaigate/chart
+    helm:
+      valueFiles:
+        - ../override-values.yaml   # Our overrides — chart's values.yaml stays untouched
   destination:
     server: https://kubernetes.default.svc
     namespace: fortiaigate

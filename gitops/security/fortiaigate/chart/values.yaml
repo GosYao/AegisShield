@@ -1,70 +1,418 @@
-# FortiAIGate 8.0.0 — Helm values override
-# Place this file inside gitops/security/fortiaigate/chart/ alongside Chart.yaml.
-# ArgoCD will use it as the values override automatically.
+# Default values for fortiaigate.
+# This is a YAML-formatted file.
+# Declare variables to be substituted into your templates.
 #
-# Schema is based on the official FortiAIGate Deployment Guide.
-# All YOUR_* / REPLACE_* placeholders must be filled before syncing.
+# IMPORTANT: This chart uses Bitnami PostgreSQL and Redis charts as dependencies.
+# For advanced configuration options beyond what's shown here, refer to:
+# - PostgreSQL: https://github.com/bitnami/charts/tree/main/bitnami/postgresql#parameters
+# - Redis: https://github.com/bitnami/charts/tree/main/bitnami/redis#parameters
 
-# ── Global ────────────────────────────────────────────────────────────────────
 global:
   security:
-    allowInsecureImages: true   # Required — images come from private registry
+    allowInsecureImages: true
 
-  # License mapping: one .lic file per GKE worker node.
-  # Place .lic files in: gitops/security/fortiaigate/chart/files/licenses/
-  # Get node names after terraform apply: kubectl get nodes
-  # Current license file: FAIGCNSD26000104.lic (placed in files/licenses/)
-  # Format: "node-name": "files/licenses/<filename>.lic"
-  licenses:
-    "gke-aegis-cluster-system-pool-0d923f07-342h": "files/licenses/FAIGCNSD26000104.lic"
-    "gke-aegis-cluster-system-pool-0d923f07-crkl": "files/licenses/FAIGCNSD26000104.lic"
-    # Add one entry per additional worker node
+  # License Management
+  # Map of node names to their license files.
+  # Pods will ONLY be scheduled on these specific nodes.
+  # Example:
+  # licenses:
+  #   "worker-node-1": files/licenses/license-1.lic
+  #   "worker-node-2": files/licenses/license-2.lic
+  licenses: {}
 
-# ── FortiAIGate image & GPU ───────────────────────────────────────────────────
+# FortiAIGate Global Configuration
 fortiaigate:
+  # Common image configuration
   image:
-    repository: us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo
-    tag: V8.0.0-build0023   # e.g. V8.0.0-build0004 — check after docker load
+    # Specify your container registry address and image tag.
+    # Example:
+    # repository: 192.168.0.1:5000
+    # tag: v8.0.0-build0001
+    repository: 
+    tag: 
     pullPolicy: IfNotPresent
-    pullSecrets: []           # Add imagePullSecret name if registry needs auth
+    pullSecrets: []
 
+  # Global GPU configuration
   gpu:
-    enabled: true             # NVIDIA L4 acceleration for AI scanners (Triton)
+    enabled: true  # Set to false to run on non-GPU nodes
 
-# ── Storage (API and Core services) ───────────────────────────────────────────
-# Dynamic provisioning: leave existingPvName empty (default).
-# StorageClass must support ReadWriteMany (RWX).
+  # Update strategy for all Deployment workloads (api, webui, core, logd, triton, scanners).
+  # Does NOT apply to the license-manager DaemonSet, which always uses RollingUpdate.
+  #
+  # "RollingUpdate" (default): starts new pods before terminating old ones — zero downtime,
+  #   but requires spare capacity. On GPU-constrained nodes, the new Triton pod will be stuck
+  #   Pending waiting for a GPU still held by the old pod, causing a deadlock.
+  # "Recreate": terminates all old pods first, then starts new ones — brief downtime during
+  #   upgrade, but safe when GPU resources are exclusive and there is no spare capacity.
+  updateStrategy: RollingUpdate  # RollingUpdate or Recreate
+
+  # Global environment variables
+  env:
+    logLevel: "INFO"
+
+# API Service Configuration
+api:
+  replicas: 1
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Web UI Configuration
+webui:
+  replicas: 1
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Core Service Configuration
+core:
+  replicas: 1
+
+  env:
+    # Maximum number of concurrent requests the FortiAIGate will process parallelly.
+    # Requests beyond this limit will be queued until capacity is available.
+    # NOTE: This limit applies per FortiAIGate AIFlow instance (replica). Total parallel capacity
+    # is (maxParallelRequests * core.replicas).
+    maxParallelRequests: 100
+    # Timeout in seconds for requests from AI Gateway to upstream LLM providers (e.g. OpenAI, Anthropic)
+    upstreamLlmRequestTimeout: 600
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+# Triton Inference Server Configuration
+# REQUIRED: Serves all 5 security models on a single GPU with dynamic batching and rate limiting
+# Scanners depend on Triton for inference (thick client, thin server architecture)
+triton:
+  replicas: 1
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 20Gi
+      gpuCount: 1
+      gpuResourceName: "nvidia.com/gpu"  # Can be overridden for MIG: nvidia.com/mig-3g.40gb
+    requests:
+      cpu: 1000m
+      memory: 12Gi
+
+# Scanner Configuration - All AI-based scanners
+# Note: Scanners run as CPU-only clients that connect to Triton server
+# Scanners handle tokenization and chunking, Triton handles inference
+scanners:
+  # Global scanner environment variables
+  env:
+    # Maximum number of characters to scan per request.
+    # Content exceeding this limit will be truncated before scanning.
+    # Increasing maxScanChars requires more memory and CPU resources.
+    # Tune this value based on your system's capacity and performance requirements.
+    # NOTE: System hard limit is 1,500,000 characters. Values above this
+    # will be automatically capped at the maximum.
+    maxScanChars: "5000"
+
+  # Default resource requests and limits for all scanners
+  defaultResources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+  # To override resources for a specific scanner, add a 'resources' block under that scanner.
+  # Example:
+  # code:
+  #   replicas: 1
+  #   resources:
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+  #     requests:
+  #       cpu: 250m
+  #       memory: 256Mi
+
+  language:
+    replicas: 1
+    env: {}
+    # resources:
+    #   limits:
+    #     cpu: 500m
+    #     memory: 512Mi
+    #   requests:
+    #     cpu: 250m
+    #     memory: 256Mi
+
+  code:
+    replicas: 1
+    env: {}
+    # resources:
+    #   limits:
+    #     cpu: 500m
+    #     memory: 512Mi
+    #   requests:
+    #     cpu: 250m
+    #     memory: 256Mi
+
+  promptinjection:
+    replicas: 1
+    # Environment variables for promptinjection scanner
+    env:
+      # CHUNK_OVERLAP_SIZE is limited to a maximum of half the CHUNK_SIZE. Values exceeding this limit will be adjusted automatically.
+      CHUNK_SIZE: "512"
+      CHUNK_OVERLAP_SIZE: "256"
+    # resources:
+    #   limits:
+    #     cpu: 500m
+    #     memory: 512Mi
+    #   requests:
+    #     cpu: 250m
+    #     memory: 256Mi
+
+  sensitive:
+    replicas: 1
+    env: {}
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 10Gi
+      requests:
+        cpu: 1000m
+        memory: 6Gi
+
+  toxicity:
+    replicas: 1
+    # Environment variables for Toxicity scanner
+    env:
+      CHUNK_SIZE: "512"
+      CHUNK_OVERLAP_SIZE: "256"
+    # resources:
+    #   limits:
+    #     cpu: 1000m
+    #     memory: 1Gi
+    #   requests:
+    #     cpu: 250m
+    #     memory: 256Mi
+
+  anonymize:
+    replicas: 1
+    env: {}
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 15Gi
+      requests:
+        cpu: 1000m
+        memory: 6Gi
+
+  deanonymize:
+    replicas: 1
+    env: {}
+    # resources:
+    #   limits:
+    #     cpu: 500m
+    #     memory: 512Mi
+    #   requests:
+    #     cpu: 250m
+    #     memory: 256Mi
+
+  customrule:
+    replicas: 1
+    env: {}
+    # resources:
+    #   limits:
+    #     cpu: 500m
+    #     memory: 512Mi
+    #   requests:
+    #     cpu: 250m
+    #     memory: 256Mi
+
+license_manager:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# LogD Service Configuration
+logd:
+  replicas: 1
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Storage Configuration
 storage:
-  size: 8Gi
-  storageClass: nfs-rwx
+  # Storage size and class configuration for API and Core services
+  size: 16Gi
+  storageClass: ""  # Use default storage class
+
+  # Storage deployment modes:
+  # 1. Dynamic provisioning (default): Leave existingPvName empty
+  #    - Creates PVC with storage class, auto-creates PV via storage class
+  # 2. Bind to existing PV: Set existingPvName to the name of existing PV
+  #    - Creates PVC that binds to the specified existing PV
+  #    - User must manually create the PV first
+
+  # Use existing PV name (leave empty for auto-creation)
+  # When specified, creates a PVC that binds to the existing PV
   existingPvName: ""
 
-# ── Ingress ───────────────────────────────────────────────────────────────────
-# IngressClass name must match: kubectl get ingressclass
+# Ingress Configuration
 ingress:
-  className: nginx            # Change to "gce" if using GKE native Ingress
-  host: ""                    # Left empty — access via Ingress controller external IP
+  className: "nginx" # You need update this to your ingress used
+  host: ""  # Optional: Set to a specific hostname to enable host-based routing
+  # Custom annotations that take priority over predefined controller settings
+  # When provided, these annotations will be used instead of controller-specific ones
+  #
+  # NOTE: For NGINX and ALB ingress controllers, default TLS backend annotations are automatically
+  # configured. However, if you're using a different ingress controller (Contour, Istio, etc.) and you enable TLS for backend,
+  # you MUST add the appropriate annotations here to ensure HTTPS backend connectivity.
+  #
+  # Example for custom NGINX TLS backend (overrides default NGINX configuration):
+  # annotations:
+  #   nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+  #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
   annotations: {}
 
-# ── TLS ───────────────────────────────────────────────────────────────────────
-# Upload cert and key to:
-#   gitops/security/fortiaigate/chart/files/certificate/
+# TLS Configuration
 tls:
+  # Enable/disable TLS for all services except postgresql and redis
   enabled: true
-  mountPath: "/etc/tls"
-  cert: files/certificate/dflt.crt   # Upload your cert to chart/files/certificate/
-  key: files/certificate/dflt.key    # Upload your key  to chart/files/certificate/
 
-# ── PostgreSQL ────────────────────────────────────────────────────────────────
+  # TLS mount path in containers
+  mountPath: "/etc/tls"
+
+  # Certificate data (used to create secrets)
+  # You need to provide your own certificate and key
+  cert: files/certificate/dflt.crt
+  key: files/certificate/dflt.key
+
+# PostgreSQL Configuration
+# For advanced configuration options, refer to:
+# https://github.com/bitnami/charts/tree/main/bitnami/postgresql#parameters
 postgresql:
+  enabled: true  # Enable PostgreSQL service
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: 17.4.0-debian-12-r19
+    pullPolicy: IfNotPresent
+  auth:
+    username: "fortiaigate_postgres_user"
+    database: "fortiaigate_db"
+
+  # TLS Configuration for PostgreSQL
+  tls:
+    # Enable TLS for PostgreSQL
+    enabled: true
+    # Use existing secret created by main chart
+    certificatesSecret: "fortiaigate-tls-secret"
+    # Certificate filename in the secret
+    certFilename: "tls.crt"
+    # Certificate key filename in the secret
+    certKeyFilename: "tls.key"
+    # Prefer server ciphers
+    preferServerCiphers: true
+
+  # Enable volumePermissions for tls support
+  volumePermissions:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/os-shell
+      tag: 12-debian-12-r50
+
   primary:
     persistence:
-      size: 8Gi
-      storageClass: nfs-rwx
+      enabled: true
+      size: 16Gi
+      storageClass: ""
+      # Use existing PVC created by storage configuration
+      # This will be automatically set to the correct PVC name by the template
+      existingClaim: "fortiaigate-storage"
+      # Access modes for the PVC (e.g., ["ReadWriteOnce", "ReadWriteMany"])
+      # Leave empty to use default from storage class
+      # For advanced options, see Bitnami PostgreSQL documentation
+      accessModes: ["ReadWriteMany"]
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 4Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    service:
+      type: ClusterIP
+      port: 5432
 
-# ── Redis ─────────────────────────────────────────────────────────────────────
+# Redis Configuration
+# For advanced configuration options, refer to:
+# https://github.com/bitnami/charts/tree/main/bitnami/redis#parameters
 redis:
+  enabled: true  # Enable Redis service
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/redis
+    tag: 8.2.0-debian-12-r0
+    pullPolicy: IfNotPresent
+  architecture: standalone  # Run single master node instead of master-replica
+
+  # TLS Configuration for Redis
+  tls:
+    # Enable TLS for Redis
+    enabled: true
+    # Use existing secret created by main chart
+    existingSecret: "fortiaigate-tls-secret"
+    # Certificate filename in the secret
+    certFilename: "tls.crt"
+    # Certificate key filename in the secret
+    certKeyFilename: "tls.key"
+    # CA Certificate filename in the secret
+    certCAFilename: "tls.crt"
+    # Disable client authentication (mutual TLS)
+    authClients: false
+
   master:
     persistence:
+      enabled: true
       size: 4Gi
-      storageClass: nfs-rwx
+      storageClass: ""
+      # Use existing PVC created by storage configuration
+      # This will be automatically set to the correct PVC name by the template
+      existingClaim: "fortiaigate-storage"
+      # Access modes for the PVC (e.g., ["ReadWriteOnce", "ReadWriteMany"])
+      # Leave empty to use default from storage class
+      # For advanced options, see Bitnami Redis documentation
+      accessModes: ["ReadWriteMany"]
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    service:
+      type: ClusterIP
+      port: 6379
