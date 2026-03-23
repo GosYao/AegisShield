@@ -23,7 +23,7 @@ spec:
     path: gitops/security/fortiaigate/chart
     helm:
       valueFiles:
-        - ../override-values.yaml   # Our overrides — chart's values.yaml stays untouched
+        - override-values.yaml   # Our overrides on top of chart defaults
   destination:
     server: https://kubernetes.default.svc
     namespace: fortiaigate

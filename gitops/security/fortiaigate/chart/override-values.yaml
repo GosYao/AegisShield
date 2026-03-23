@@ -1,0 +1,70 @@
+# FortiAIGate 8.0.0 — Helm values override
+# Place this file inside gitops/security/fortiaigate/chart/ alongside Chart.yaml.
+# ArgoCD will use it as the values override automatically.
+#
+# Schema is based on the official FortiAIGate Deployment Guide.
+# All YOUR_* / REPLACE_* placeholders must be filled before syncing.
+
+# ── Global ────────────────────────────────────────────────────────────────────
+global:
+  security:
+    allowInsecureImages: true   # Required — images come from private registry
+
+  # License mapping: one .lic file per GKE worker node.
+  # Place .lic files in: gitops/security/fortiaigate/chart/files/licenses/
+  # Get node names after terraform apply: kubectl get nodes
+  # Current license file: FAIGCNSD26000104.lic (placed in files/licenses/)
+  # Format: "node-name": "files/licenses/<filename>.lic"
+  licenses:
+    "gke-aegis-cluster-system-pool-0d923f07-342h": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-0d923f07-crkl": "files/licenses/FAIGCNSD26000104.lic"
+    # Add one entry per additional worker node
+
+# ── FortiAIGate image & GPU ───────────────────────────────────────────────────
+fortiaigate:
+  image:
+    repository: us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo
+    tag: V8.0.0-build0023   # e.g. V8.0.0-build0004 — check after docker load
+    pullPolicy: IfNotPresent
+    pullSecrets: []           # Add imagePullSecret name if registry needs auth
+
+  gpu:
+    enabled: true             # NVIDIA L4 acceleration for AI scanners (Triton)
+
+# ── Storage (API and Core services) ───────────────────────────────────────────
+# Dynamic provisioning: leave existingPvName empty (default).
+# StorageClass must support ReadWriteMany (RWX).
+storage:
+  size: 8Gi
+  storageClass: nfs-rwx
+  existingPvName: ""
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+# IngressClass name must match: kubectl get ingressclass
+ingress:
+  className: nginx            # Change to "gce" if using GKE native Ingress
+  host: ""                    # Left empty — access via Ingress controller external IP
+  annotations: {}
+
+# ── TLS ───────────────────────────────────────────────────────────────────────
+# Upload cert and key to:
+#   gitops/security/fortiaigate/chart/files/certificate/
+tls:
+  enabled: true
+  mountPath: "/etc/tls"
+  cert: files/certificate/dflt.crt   # Upload your cert to chart/files/certificate/
+  key: files/certificate/dflt.key    # Upload your key  to chart/files/certificate/
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+postgresql:
+  primary:
+    persistence:
+      size: 8Gi
+      storageClass: nfs-rwx
+
+# ── Redis ─────────────────────────────────────────────────────────────────────
+redis:
+  master:
+    persistence:
+      size: 4Gi
+      storageClass: nfs-rwx
