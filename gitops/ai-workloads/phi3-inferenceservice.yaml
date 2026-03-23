@@ -12,11 +12,10 @@ spec:
       modelFormat:
         name: huggingface
       args:
-        - "--model_id=microsoft/Phi-3-mini-4k-instruct"
+        - "--model_id=TinyLlama/TinyLlama-1.1B-Chat-v1.0"
         - "--backend=vllm"
-        - "--max-model-len=4096"
+        - "--max-model-len=2048"
         - "--dtype=float16"
-        - "--trust-remote-code"
       env:
         - name: HF_TOKEN
           valueFrom:
