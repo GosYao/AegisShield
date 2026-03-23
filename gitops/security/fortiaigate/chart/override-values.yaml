@@ -59,6 +59,13 @@ tls:
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
 postgresql:
   primary:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 1Gi
+      limits:
+        cpu: "1"
+        memory: 4Gi
     persistence:
       size: 8Gi
       storageClass: nfs-rwx
