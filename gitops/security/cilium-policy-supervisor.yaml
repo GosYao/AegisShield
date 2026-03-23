@@ -1,52 +1,58 @@
-# L4 Cilium network policy for the Supervisor pod.
-# The supervisor only needs to reach phi-3-mini and the Kubernetes API server.
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+# L4 NetworkPolicy for the Supervisor pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
 metadata:
   name: supervisor-egress-policy
   namespace: aegis-mesh
 spec:
-  endpointSelector:
+  podSelector:
     matchLabels:
       app: aegis-supervisor
 
+  policyTypes:
+    - Ingress
+    - Egress
+
   # INGRESS: accept calls from the agent only
   ingress:
-    - fromEndpoints:
-        - matchLabels:
-            app: aegis-agent
-      toPorts:
-        - ports:
-            - port: "8081"
-              protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: aegis-agent
+      ports:
+        - port: 8081
+          protocol: TCP
 
   egress:
     # DNS
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:k8s-app: kube-dns
-      toPorts:
-        - ports:
-            - port: "53"
-              protocol: UDP
-            - port: "53"
-              protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
 
-    # phi-3-mini KServe endpoint for intent classification
-    - toFQDNs:
-        - matchPattern: "*.aegis-mesh.svc.cluster.local"
-      toPorts:
-        - ports:
-            - port: "80"
-              protocol: TCP
-            - port: "8080"
-              protocol: TCP
+    # phi-3-mini / TinyLlama KServe endpoint
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aegis-mesh
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
 
     # Kubernetes API server — required for pod deletion enforcement
-    - toEntities:
-        - kube-apiserver
-      toPorts:
-        - ports:
-            - port: "443"
-              protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP

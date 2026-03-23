@@ -1,69 +1,80 @@
-# L4 Cilium network policy for the Agent pod.
-# Implements the principle of least-privilege egress:
-# the agent may ONLY reach kube-dns, the supervisor, internal KServe, and Google APIs.
-# Any other egress (e.g., to an attacker-controlled endpoint) is silently dropped.
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+# L4 NetworkPolicy for the Agent pod.
+# GKE Dataplane V2 enforces these via Cilium internally.
+# Note: FQDN-based egress filtering (Google APIs, KServe DNS) requires full
+# CiliumNetworkPolicy CRDs which are not available on GKE Dataplane V2.
+# Pod-to-pod isolation is enforced; external egress is unrestricted at L4.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
 metadata:
   name: agent-egress-policy
   namespace: aegis-mesh
 spec:
-  endpointSelector:
+  podSelector:
     matchLabels:
       app: aegis-agent
 
-  # INGRESS: only accept traffic from FortiAIGate (the public entry point)
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            app: fortiaigate
-      toPorts:
-        - ports:
-            - port: "8080"
-              protocol: TCP
+  policyTypes:
+    - Ingress
+    - Egress
 
-  # EGRESS allowlist — everything not listed is denied
+  # INGRESS: only accept traffic from FortiAIGate namespace
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fortiaigate
+          podSelector:
+            matchLabels:
+              app: fortiaigate
+      ports:
+        - port: 8080
+          protocol: TCP
+
   egress:
-    # DNS resolution (kube-dns in kube-system)
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:k8s-app: kube-dns
-      toPorts:
-        - ports:
-            - port: "53"
-              protocol: UDP
-            - port: "53"
-              protocol: TCP
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
 
     # Supervisor — pre-action intent check
-    - toEndpoints:
-        - matchLabels:
-            app: aegis-supervisor
-      toPorts:
-        - ports:
-            - port: "8081"
-              protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: aegis-supervisor
+      ports:
+        - port: 8081
+          protocol: TCP
 
-    # KServe / Mistral inference endpoint (internal cluster DNS)
-    - toFQDNs:
-        - matchPattern: "*.aegis-mesh.svc.cluster.local"
-      toPorts:
-        - ports:
-            - port: "80"
-              protocol: TCP
-            - port: "8080"
-              protocol: TCP
+    # KServe / Mistral (within aegis-mesh namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aegis-mesh
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
 
-    # Google APIs — GCS + Workload Identity metadata / token exchange
-    - toFQDNs:
-        - matchName: "storage.googleapis.com"
-        - matchName: "oauth2.googleapis.com"
-        - matchName: "iamcredentials.googleapis.com"
-        - matchName: "metadata.google.internal"
-      toPorts:
-        - ports:
-            - port: "443"
-              protocol: TCP
-            - port: "80"
-              protocol: TCP
+    # Google APIs (GCS + Workload Identity) — external HTTPS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
