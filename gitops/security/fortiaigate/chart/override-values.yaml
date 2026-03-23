@@ -18,7 +18,7 @@ global:
   licenses:
     "gke-aegis-cluster-system-pool-0d923f07-342h": "files/licenses/FAIGCNSD26000104.lic"
     "gke-aegis-cluster-system-pool-0d923f07-crkl": "files/licenses/FAIGCNSD26000104.lic"
-    # Add one entry per additional worker node
+    "gke-aegis-cluster-system-pool-0d923f07-hxjm": "files/licenses/FAIGCNSD26000104.lic"
 
 # ── FortiAIGate image & GPU ───────────────────────────────────────────────────
 fortiaigate:
