@@ -1,0 +1,25 @@
+annotations:
+  category: Security
+apiVersion: v2
+appVersion: 8.0.0
+dependencies:
+- condition: postgresql.enabled
+  name: postgresql
+  repository: https://charts.bitnami.com/bitnami
+  version: 16.7.0
+- condition: redis.enabled
+  name: redis
+  repository: https://charts.bitnami.com/bitnami
+  version: 22.0.0
+description: FortiAIGate - AI-powered security scanning platform
+keywords:
+- security
+- ai
+- scanning
+- LLM (Large Language Model)
+maintainers:
+- email: team@fortiaigate.com
+  name: FortiAIGate Team
+name: fortiaigate
+type: application
+version: 8.0.0

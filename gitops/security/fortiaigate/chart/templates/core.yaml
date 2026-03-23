@@ -1,0 +1,174 @@
+# Core Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core
+  labels:
+    app: core
+    app.kubernetes.io/name: fortiaigate
+    app.kubernetes.io/part-of: fortiaigate-platform
+    app.kubernetes.io/managed-by: helm
+spec:
+  replicas: {{ .Values.core.replicas }}
+  strategy:
+    type: {{ .Values.fortiaigate.updateStrategy }}
+  selector:
+    matchLabels:
+      app: core
+  template:
+    metadata:
+      annotations:
+        # This is the key that triggers a restart when TLS certificates change
+        checksum/config: {{ printf "%s%s" (tpl (.Files.Get .Values.tls.cert) $) (tpl (.Files.Get .Values.tls.key) $) | sha256sum }}
+      labels:
+        app: core
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      {{- keys .Values.global.licenses | toYaml | nindent 22 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: core
+        image: {{ .Values.fortiaigate.image.repository }}/core:{{ .Values.fortiaigate.image.tag }}
+        imagePullPolicy: {{ .Values.fortiaigate.image.pullPolicy }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /fortiaigate/health/readiness
+            port: http
+            {{- if .Values.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.core.resources | nindent 10 }}
+        env:
+        - name: AIFLOW_MAX_PARALLEL_REQUESTS
+          value: {{ .Values.core.env.maxParallelRequests | quote }}
+        - name: UPSTREAM_LLM_REQUEST_TIMEOUT
+          value: {{ .Values.core.env.upstreamLlmRequestTimeout | quote }}
+        - name: FORTIAIGATE_LOG_LEVEL
+          value: {{ .Values.fortiaigate.env.logLevel | quote }}
+        {{- if .Values.tls.enabled }}
+        - name: FORTIAIGATE_SSL_CERT_FILE
+          value: {{ printf "%s/tls.crt" .Values.tls.mountPath | quote }}
+        - name: FORTIAIGATE_SSL_KEY_FILE
+          value: {{ printf "%s/tls.key" .Values.tls.mountPath | quote }}
+        {{- end }}
+        - name: REDIS_SSL_ENABLED
+          value: {{ .Values.redis.tls.enabled | quote }}
+        {{- if .Values.redis.tls.enabled }}
+        - name: REDIS_SSL_CERTFILE
+          value: {{ printf "%s/tls.crt" .Values.tls.mountPath | quote }}
+        - name: REDIS_SSL_KEYFILE
+          value: {{ printf "%s/tls.key" .Values.tls.mountPath | quote }}
+        - name: REDIS_SSL_CA_CERTS
+          value: {{ printf "%s/tls.crt" .Values.tls.mountPath | quote }}
+        {{- end }}
+        - name: POSTGRES_SSL_ENABLED
+          value: {{ .Values.postgresql.tls.enabled | quote }}
+        {{- if .Values.postgresql.tls.enabled }}
+        - name: POSTGRES_SSL_CERTFILE
+          value: {{ printf "%s/tls.crt" .Values.tls.mountPath | quote }}
+        - name: POSTGRES_SSL_KEYFILE
+          value: {{ printf "%s/tls.key" .Values.tls.mountPath | quote }}
+        - name: POSTGRES_SSL_CA_CERTS
+          value: {{ printf "%s/tls.crt" .Values.tls.mountPath | quote }}
+        {{- end }}
+        # Database configuration (only what's actually used by the application)
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "fortiaigate.fullname" . }}-db-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "fortiaigate.fullname" . }}-db-config
+              key: REDIS_PORT
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Release.Name }}-redis
+              key: redis-password
+        # Database credentials (from auto-generated PostgreSQL secret and values)
+        - name: POSTGRES_USER
+          value: "{{ .Values.postgresql.auth.username }}"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Release.Name }}-postgresql
+              key: password
+        - name: POSTGRES_DB
+          value: "{{ .Values.postgresql.auth.database }}"
+        - name: POSTGRES_HOST
+          value: "{{ .Release.Name }}-postgresql"
+        - name: POSTGRES_PORT
+          value: "{{ .Values.postgresql.primary.service.port }}"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /etc/fortiaigate/
+          readOnly: false
+        - name: tmp
+          mountPath: /tmp
+        {{- if or .Values.tls.enabled .Values.redis.tls.enabled .Values.postgresql.tls.enabled }}
+        - name: tls-certs
+          mountPath: {{ .Values.tls.mountPath | quote }}
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: {{ include "fortiaigate.fullname" . }}-storage
+      - name: tmp
+        emptyDir: {}
+      {{- if or .Values.tls.enabled .Values.redis.tls.enabled .Values.postgresql.tls.enabled }}
+      - name: tls-certs
+        secret:
+          secretName: fortiaigate-tls-secret
+      {{- end }}
+      {{- with .Values.fortiaigate.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core
+  labels:
+    app.kubernetes.io/name: fortiaigate
+    app.kubernetes.io/part-of: fortiaigate-platform
+    app.kubernetes.io/managed-by: helm
+spec:
+  selector:
+    app: core
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+    name: http
+  type: ClusterIP

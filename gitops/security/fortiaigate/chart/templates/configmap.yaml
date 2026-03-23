@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fortiaigate.fullname" . }}-db-config
+  labels:
+    {{- include "fortiaigate.labels" . | nindent 4 }}
+data:
+  # Database configuration
+  POSTGRES_DB: "{{ .Values.postgresql.auth.database }}"
+  POSTGRES_USER: "{{ .Values.postgresql.auth.username }}"
+  POSTGRES_HOST: "{{ .Release.Name }}-postgresql"
+  POSTGRES_PORT: "{{ .Values.postgresql.primary.service.port }}"
+
+  # Redis configuration
+  REDIS_HOST: "{{ .Release.Name }}-redis-master"
+  REDIS_PORT: "{{ .Values.redis.master.service.port }}"
+
+  # Connection pool settings
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+  REDIS_POOL_SIZE: "10"

@@ -1,0 +1,48 @@
+{{- /*
+  Storage Template for FortiAIGate
+
+  This template creates a PersistentVolumeClaim that can either:
+  1. Create a new PVC with dynamic provisioning (default) - auto-creates PV via storage class
+  2. Bind to an existing PersistentVolume when existingPvName is specified
+
+  The PVC is shared between API and Core services for configuration and data storage.
+*/ -}}
+
+{{- $existingPvName := .Values.storage.existingPvName }}
+{{- $pvcName := printf "%s-storage" (include "fortiaigate.fullname" .) }}
+
+{{- if $existingPvName }}
+# Create a PVC that binds to an existing PV
+# User must manually create the PV first
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $pvcName }}
+  labels:
+    {{- include "fortiaigate.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+  volumeName: {{ $existingPvName }}
+  storageClassName: ""
+{{- else }}
+# Create new PVC with dynamic provisioning (auto-creates PV via storage class)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $pvcName }}
+  labels:
+    {{- include "fortiaigate.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+  {{- if .Values.storage.storageClass }}
+  storageClassName: {{ .Values.storage.storageClass }}
+  {{- end }}
+{{- end }}

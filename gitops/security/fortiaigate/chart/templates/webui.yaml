@@ -1,0 +1,102 @@
+# WebUI Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webui
+  labels:
+    app: webui
+    app.kubernetes.io/name: fortiaigate
+    app.kubernetes.io/part-of: fortiaigate-platform
+    app.kubernetes.io/managed-by: helm
+spec:
+  replicas: {{ .Values.webui.replicas }}
+  strategy:
+    type: {{ .Values.fortiaigate.updateStrategy }}
+  selector:
+    matchLabels:
+      app: webui
+  template:
+    metadata:
+      annotations:
+        # This is the key that triggers a restart when TLS certificates change
+        checksum/config: {{ printf "%s%s" (tpl (.Files.Get .Values.tls.cert) $) (tpl (.Files.Get .Values.tls.key) $) | sha256sum }}
+      labels:
+        app: webui
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      {{- keys .Values.global.licenses | toYaml | nindent 22 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: webui
+        image: {{ .Values.fortiaigate.image.repository }}/webui:{{ .Values.fortiaigate.image.tag }}
+        imagePullPolicy: {{ .Values.fortiaigate.image.pullPolicy }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        command: ["node", "https-server.js"]
+        ports:
+        - containerPort: 3000
+        resources:
+          {{- toYaml .Values.webui.resources | nindent 10 }}
+        env:
+        - name: LOG_LEVEL
+          value: {{ .Values.fortiaigate.env.logLevel | quote }}
+        {{- if .Values.tls.enabled }}
+        - name: FORTIAIGATE_SSL_CERT_FILE
+          value: {{ printf "%s/tls.crt" .Values.tls.mountPath | quote }}
+        - name: FORTIAIGATE_SSL_KEY_FILE
+          value: {{ printf "%s/tls.key" .Values.tls.mountPath | quote }}
+        {{- end }}
+        # Add other environment variables as needed
+        # - name: NODE_ENV
+        #   value: "production"
+        {{- if .Values.tls.enabled }}
+        volumeMounts:
+        - name: tls-certs
+          mountPath: {{ .Values.tls.mountPath | quote }}
+          readOnly: true
+        {{- end }}
+      {{- if .Values.tls.enabled }}
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: fortiaigate-tls-secret
+      {{- end }}
+      {{- with .Values.fortiaigate.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# WebUI Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: webui
+  labels:
+    app.kubernetes.io/name: fortiaigate
+    app.kubernetes.io/part-of: fortiaigate-platform
+    app.kubernetes.io/managed-by: helm
+spec:
+  selector:
+    app: webui
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+    name: http
+  type: ClusterIP

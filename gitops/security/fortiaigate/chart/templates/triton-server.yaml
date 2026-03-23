@@ -1,0 +1,588 @@
+# Triton Inference Server Deployment with Repository Agent
+# Serves all 5 security models with GPU acceleration, dynamic batching, and rate limiting
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton-server
+  labels:
+    app: triton-server 
+    app.kubernetes.io/name: fortiaigate
+    app.kubernetes.io/part-of: fortiaigate-platform
+    app.kubernetes.io/managed-by: helm
+spec:
+  replicas: {{ .Values.triton.replicas }}
+  strategy:
+    type: {{ .Values.fortiaigate.updateStrategy }}
+  selector:
+    matchLabels:
+      app: triton-server
+  template:
+    metadata:
+      labels:
+        app: triton-server
+        app.kubernetes.io/name: fortiaigate
+        app.kubernetes.io/part-of: fortiaigate-platform
+        app.kubernetes.io/managed-by: helm
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      {{- keys .Values.global.licenses | toYaml | nindent 22 }}
+      securityContext:
+        runAsNonRoot: false  # Triton container runs as root
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: model-loader
+        image: {{ .Values.fortiaigate.image.repository }}/triton-models:0.1.4
+        imagePullPolicy: {{ .Values.fortiaigate.image.pullPolicy }}
+        command: ['sh', '-c', 'cp -r /models/* /shared-models/ && echo "Models copied successfully"']
+        volumeMounts:
+        - name: model-repository
+          mountPath: /shared-models
+      containers:
+      - name: triton
+        image: {{ .Values.fortiaigate.image.repository }}/custom-triton:25.11-onnx-trt-agt
+        imagePullPolicy: {{ .Values.fortiaigate.image.pullPolicy }}
+        command:
+          - tritonserver
+          - --model-repository=/models
+          - --rate-limit-resource=gpu_slots:100
+          - --grpc-port=8001
+          - --http-port=8000
+          - --metrics-port=8002
+          - --log-verbose=1
+          # gRPC connection management for load balancing
+          - --grpc-keepalive-time=30000
+          - --grpc-keepalive-timeout=5000
+          - --grpc-max-connection-age=900000
+          - --grpc-max-connection-age-grace=600000
+          # HTTP/2 ping configuration to prevent "too_many_pings" errors
+          # These are GLOBAL server settings that apply to ALL connections:
+          # - max-pings-without-data: Controls how many pings SERVER can send to clients (not client->server)
+          # - min-recv-ping-interval: Minimum interval between pings SERVER expects to receive from clients
+          # - max-ping-strikes: Maximum "bad pings" server tolerates per connection before closing it
+          # Set to 0 to disable limits and prevent "too_many_pings" errors when multiple scanners connect
+          - --grpc-http2-max-pings-without-data=0
+          - --grpc-http2-min-recv-ping-interval-without-data=10000
+          - --grpc-http2-max-ping-strikes=0
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        - containerPort: 8001
+          name: grpc
+          protocol: TCP
+        - containerPort: 8002
+          name: metrics
+          protocol: TCP
+        env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        resources:
+          {{- $finalResources := .Values.triton.resources }}
+          {{- $gpuEnabled := .Values.fortiaigate.gpu.enabled }}
+          limits:
+            {{- range $k, $v := $finalResources.limits }}
+              {{- if or (eq $k "cpu") (eq $k "memory") }}
+            {{ $k }}: {{ $v }}
+              {{- else if and (eq $k "gpuCount") $gpuEnabled }}
+            {{ $finalResources.limits.gpuResourceName }}: {{ $v }}
+              {{- end }}
+            {{- end }}
+          requests:
+            {{- range $k, $v := $finalResources.requests }}
+            {{ $k }}: {{ $v }}
+            {{- end }}
+        volumeMounts:
+        - name: model-repository
+          mountPath: /models
+        - name: model-configs
+          mountPath: /models/prompt_injection_model/config.pbtxt
+          subPath: prompt_injection_model-config.pbtxt
+        - name: model-configs
+          mountPath: /models/toxicity_model/config.pbtxt
+          subPath: toxicity_model-config.pbtxt
+        - name: model-configs
+          mountPath: /models/sensitive_model/config.pbtxt
+          subPath: sensitive_model-config.pbtxt
+        - name: model-configs
+          mountPath: /models/language_model/config.pbtxt
+          subPath: language_model-config.pbtxt
+        - name: model-configs
+          mountPath: /models/code_model/config.pbtxt
+          subPath: code_model-config.pbtxt
+        - name: shm-memory
+          mountPath: /dev/shm
+        livenessProbe:
+          httpGet:
+            path: /v2/health/live
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 15
+        readinessProbe:
+          httpGet:
+            path: /v2/health/ready
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 15
+      volumes:
+      - name: model-repository
+        emptyDir: {}
+      - name: model-configs
+        configMap:
+          name: triton-model-repository
+      - name: shm-memory
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi
+      {{- with .Values.fortiaigate.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: triton-server
+  labels:
+    app: triton-server
+    app.kubernetes.io/name: fortiaigate
+    app.kubernetes.io/part-of: fortiaigate-platform
+    app.kubernetes.io/managed-by: helm
+spec:
+  clusterIP: None  # Headless service for gRPC client-side load balancing
+  selector:
+    app: triton-server
+  ports:
+  - protocol: TCP
+    port: 8001
+    targetPort: 8001
+    name: grpc
+  - protocol: TCP
+    port: 8002
+    targetPort: 8002
+    name: metrics
+---
+# ConfigMap for Triton model repository configuration
+# This contains the config.pbtxt files for all 5 models
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: triton-model-repository
+  labels:
+    app: triton-server
+    app.kubernetes.io/name: fortiaigate
+    app.kubernetes.io/part-of: fortiaigate-platform
+    app.kubernetes.io/managed-by: helm
+data:
+  prompt_injection_model-config.pbtxt: |
+    name: "prompt_injection_model"
+    platform: "onnxruntime_onnx"
+    max_batch_size: 16
+
+    dynamic_batching {
+      preferred_batch_size: [ 8, 16 ]
+      max_queue_delay_microseconds: 2000
+    }
+
+    # Auto-detects hardware with fallback: TensorRT → CUDA → CPU
+    optimization {
+      execution_accelerators {
+        gpu_execution_accelerator : [
+          {
+            name : "tensorrt"
+            parameters { key: "precision_mode" value: "FP32" }
+            parameters { key: "trt_profile_min_shapes" value: "input_ids:1x512,attention_mask:1x512" }
+            parameters { key: "trt_profile_max_shapes" value: "input_ids:16x512,attention_mask:16x512" }
+            parameters { key: "trt_profile_opt_shapes" value: "input_ids:8x512,attention_mask:8x512" }
+            parameters { key: "trt_engine_cache_enable" value: "1" }
+          },
+          {
+            name : "cuda"
+          }
+        ]
+      }
+    }
+
+    instance_group [
+      {
+        count: 1
+        kind: KIND_AUTO
+        rate_limiter {
+          resources [
+            {
+              name: "gpu_slots"
+              count: 50
+            }
+          ]
+        }
+      }
+    ]
+
+    input [
+      {
+        name: "input_ids"
+        data_type: TYPE_INT64
+        dims: [ -1 ]
+      },
+      {
+        name: "attention_mask"
+        data_type: TYPE_INT64
+        dims: [ -1 ]
+      }
+    ]
+
+    output [
+      {
+        name: "logits"
+        data_type: TYPE_FP32
+        dims: [ 2 ]
+      }
+    ]
+
+    # Repository agent configuration
+    model_repository_agents
+    {
+      agents [
+        {
+          name: "agent"
+          parameters [
+            {
+              key: "agent_key"
+              value: "DEFAULT_AGENT_KEY"
+            }
+          ]
+        }
+      ]
+    }
+
+  toxicity_model-config.pbtxt: |
+    name: "toxicity_model"
+    platform: "onnxruntime_onnx"
+    max_batch_size: 16
+
+    dynamic_batching {
+      preferred_batch_size: [ 8, 16 ]
+      max_queue_delay_microseconds: 2000
+    }
+
+    optimization {
+      execution_accelerators {
+        gpu_execution_accelerator : [
+          {
+            name : "tensorrt"
+            parameters { key: "precision_mode" value: "FP32" }
+            parameters { key: "trt_profile_min_shapes" value: "input_ids:1x512,attention_mask:1x512" }
+            parameters { key: "trt_profile_max_shapes" value: "input_ids:16x512,attention_mask:16x512" }
+            parameters { key: "trt_profile_opt_shapes" value: "input_ids:8x512,attention_mask:8x512" }
+            parameters { key: "trt_engine_cache_enable" value: "1" }
+          },
+          {
+            name : "cuda"
+          }
+        ]
+      }
+    }
+
+    instance_group [
+      {
+        count: 1
+        kind: KIND_AUTO
+        rate_limiter {
+          resources [
+            {
+              name: "gpu_slots"
+              count: 50
+            }
+          ]
+        }
+      }
+    ]
+
+    input [
+      {
+        name: "input_ids"
+        data_type: TYPE_INT64
+        dims: [ -1 ]
+      },
+      {
+        name: "attention_mask"
+        data_type: TYPE_INT64
+        dims: [ -1 ]
+      }
+    ]
+
+    output [
+      {
+        name: "logits"
+        data_type: TYPE_FP32
+        dims: [ 16 ]
+      }
+    ]
+
+    # Repository agent configuration
+    model_repository_agents
+    {
+      agents [
+        {
+          name: "agent"
+          parameters [
+            {
+              key: "agent_key"
+              value: "DEFAULT_AGENT_KEY"
+            }
+          ]
+        }
+      ]
+    }
+
+  sensitive_model-config.pbtxt: |
+    name: "sensitive_model"
+    platform: "onnxruntime_onnx"
+    max_batch_size: 16
+
+    dynamic_batching {
+      preferred_batch_size: [ 8, 16 ]
+      max_queue_delay_microseconds: 2000
+    }
+
+    optimization {
+      execution_accelerators {
+        gpu_execution_accelerator : [
+          {
+            name : "tensorrt"
+            parameters { key: "precision_mode" value: "FP32" }
+            parameters { key: "trt_profile_min_shapes" value: "input_ids:1x512,attention_mask:1x512" }
+            parameters { key: "trt_profile_max_shapes" value: "input_ids:16x512,attention_mask:16x512" }
+            parameters { key: "trt_profile_opt_shapes" value: "input_ids:8x512,attention_mask:8x512" }
+            parameters { key: "trt_engine_cache_enable" value: "1" }
+          },
+          {
+            name : "cuda"
+          }
+        ]
+      }
+    }
+
+    instance_group [
+      {
+        count: 1
+        kind: KIND_AUTO
+        rate_limiter {
+          resources [
+            {
+              name: "gpu_slots"
+              count: 50
+            }
+          ]
+        }
+      }
+    ]
+
+    input [
+      {
+        name: "input_ids"
+        data_type: TYPE_INT64
+        dims: [ 512 ]
+      },
+      {
+        name: "attention_mask"
+        data_type: TYPE_INT64
+        dims: [ 512 ]
+      }
+    ]
+
+    output [
+      {
+        name: "logits"
+        data_type: TYPE_FP32
+        dims: [ 512, 116 ]
+      }
+    ]
+
+    # Repository agent configuration
+    model_repository_agents
+    {
+      agents [
+        {
+          name: "agent"
+          parameters [
+            {
+              key: "agent_key"
+              value: "DEFAULT_AGENT_KEY"
+            }
+          ]
+        }
+      ]
+    }
+
+  language_model-config.pbtxt: |
+    name: "language_model"
+    platform: "onnxruntime_onnx"
+    max_batch_size: 16
+
+    dynamic_batching {
+      preferred_batch_size: [ 8, 16 ]
+      max_queue_delay_microseconds: 2000
+    }
+
+
+    optimization {
+      execution_accelerators {
+        gpu_execution_accelerator : [
+          {
+            name : "tensorrt"
+            parameters { key: "precision_mode" value: "FP32" }
+            parameters { key: "trt_profile_min_shapes" value: "input_ids:1x512,attention_mask:1x512" }
+            parameters { key: "trt_profile_max_shapes" value: "input_ids:16x512,attention_mask:16x512" }
+            parameters { key: "trt_profile_opt_shapes" value: "input_ids:8x512,attention_mask:8x512" }
+            parameters { key: "trt_engine_cache_enable" value: "1" }
+          },
+          {
+            name : "cuda"
+          }
+        ]
+      }
+    }
+    instance_group [
+      {
+        count: 1
+        kind: KIND_AUTO
+        rate_limiter {
+          resources [
+            {
+              name: "gpu_slots"
+              count: 50
+            }
+          ]
+        }
+      }
+    ]
+
+    input [
+      {
+        name: "input_ids"
+        data_type: TYPE_INT64
+        dims: [ -1 ]
+      },
+      {
+        name: "attention_mask"
+        data_type: TYPE_INT64
+        dims: [ -1 ]
+      }
+    ]
+
+    output [
+      {
+        name: "logits"
+        data_type: TYPE_FP32
+        dims: [ 20 ]
+      }
+    ]
+
+    # Repository agent configuration
+    model_repository_agents
+    {
+      agents [
+        {
+          name: "agent"
+          parameters [
+            {
+              key: "agent_key"
+              value: "DEFAULT_AGENT_KEY"
+            }
+          ]
+        }
+      ]
+    }
+
+  code_model-config.pbtxt: |
+    name: "code_model"
+    platform: "onnxruntime_onnx"
+    max_batch_size: 16
+
+    dynamic_batching {
+      preferred_batch_size: [ 8, 16 ]
+      max_queue_delay_microseconds: 2000
+    }
+
+
+    optimization {
+      execution_accelerators {
+        gpu_execution_accelerator : [
+          {
+            name : "tensorrt"
+            parameters { key: "precision_mode" value: "FP32" }
+            parameters { key: "trt_profile_min_shapes" value: "input_ids:1x512,attention_mask:1x512" }
+            parameters { key: "trt_profile_max_shapes" value: "input_ids:16x512,attention_mask:16x512" }
+            parameters { key: "trt_profile_opt_shapes" value: "input_ids:8x512,attention_mask:8x512" }
+            parameters { key: "trt_engine_cache_enable" value: "1" }
+          },
+          {
+            name : "cuda"
+          }
+        ]
+      }
+    }
+    instance_group [
+      {
+        count: 1
+        kind: KIND_AUTO
+        rate_limiter {
+          resources [
+            {
+              name: "gpu_slots"
+              count: 50
+            }
+          ]
+        }
+      }
+    ]
+
+    input [
+      {
+        name: "input_ids"
+        data_type: TYPE_INT64
+        dims: [ -1 ]
+      },
+      {
+        name: "attention_mask"
+        data_type: TYPE_INT64
+        dims: [ -1 ]
+      }
+    ]
+
+    output [
+      {
+        name: "logits"
+        data_type: TYPE_FP32
+        dims: [ 26 ]
+      }
+    ]
+
+    # Repository agent configuration
+    model_repository_agents
+    {
+      agents [
+        {
+          name: "agent"
+          parameters [
+            {
+              key: "agent_key"
+              value: "DEFAULT_AGENT_KEY"
+            }
+          ]
+        }
+      ]
+    }

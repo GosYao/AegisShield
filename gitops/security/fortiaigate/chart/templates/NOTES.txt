@@ -1,0 +1,42 @@
+🎉 FortiAIGate has been successfully deployed!
+
+📊 Deployment Status:
+   Namespace: {{ .Release.Namespace }}
+   Release: {{ .Release.Name }}
+   Chart Version: {{ .Chart.Version }}
+   App Version: {{ .Chart.AppVersion }}
+
+🛠️  Useful Commands:
+
+   Monitor Deployment:
+   $ kubectl get all -n {{ .Release.Namespace }}
+   $ kubectl top pods -n {{ .Release.Namespace }}
+
+   Application Logs:
+   $ kubectl logs -n {{ .Release.Namespace }} -l app=api -f
+   $ kubectl logs -n {{ .Release.Namespace }} -l app=webui -f
+   $ kubectl logs -n {{ .Release.Namespace }} -l app=core -f
+
+   Scanner Logs (by type):
+   $ kubectl logs -n {{ .Release.Namespace }} -l app=scanner -f
+
+   Updates:
+   $ helm upgrade {{ .Release.Name }} ./fortiaigate-chart
+   $ helm rollback {{ .Release.Name }} <revision>
+
+   Cleanup:
+   $ helm uninstall {{ .Release.Name }}
+
+💻 Resource Usage:
+{{- if .Values.fortiaigate.gpu }}
+   💡 GPU Resources: Enabled - Scanners will use GPU acceleration
+{{- else }}
+   💡 GPU Resources: Disabled - Scanners will run on CPU only
+{{- end }}
+
+   View resource consumption:
+   $ kubectl top pods -n {{ .Release.Namespace }}
+
+🚀 Get started by pointing your AI applications to FortiAIGate, AI-powered scanning of all prompts and responses!
+
+Protect your AI - Happy scanning! 🛡️

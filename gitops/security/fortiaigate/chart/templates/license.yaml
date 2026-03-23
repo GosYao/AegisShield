@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fortiaigate.fullname" . }}-license-config
+  labels: {{- include "fortiaigate.labels" . | nindent 4 }}
+data:
+# License Mappings
+{{- range $nodeName, $licenseFile := .Values.global.licenses }}
+  {{ $nodeName }}: |
+{{- if $licenseFile }}
+{{ $.Files.Get $licenseFile | indent 4 }}
+{{- else }}
+{{ "" | indent 4 }}
+{{- end }}
+{{- end }}

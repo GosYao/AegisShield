@@ -1,12 +1,15 @@
 # ArgoCD Application for FortiAIGate 8.0.0
-# FortiAIGate is a multi-component Helm chart — NOT a simple Deployment manifest.
-# Components: API, WebUI, Core, 9 AI Scanners, Triton, PostgreSQL, Redis, LicenseManager, LogD.
 #
-# Prerequisites before syncing:
-#   1. All FortiAIGate images loaded from TAR archives and pushed to YOUR_REGISTRY
-#   2. One .lic file per worker node placed in files/licenses/ and mapped in values.yaml
-#   3. RWX StorageClass available in cluster
-#   4. Ingress Controller installed
+# IMPORTANT: FortiAIGate does NOT have a public Helm repository.
+# The Helm chart is distributed as a local TAR archive by Fortinet.
+#
+# Before this Application can sync:
+#   1. Download the Helm chart TAR from Fortinet Infosite:
+#      https://info.fortinet.com/builds/?project_id=807
+#   2. Extract the archive and commit the chart directory to:
+#      gitops/security/fortiaigate/chart/
+#   3. Complete values.yaml with all required placeholders
+#   4. Push to the GosYao/AegisShield repo — ArgoCD will then sync
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -15,14 +18,9 @@ metadata:
 spec:
   project: default
   source:
-    # Replace with the actual Helm chart repository URL from Fortinet.
-    # The chart is typically obtained from Fortinet support along with the license.
-    repoURL: YOUR_FORTINET_HELM_REPO
-    chart: fortiaigate
-    targetRevision: "8.0.0"
-    helm:
-      valueFiles:
-        - values.yaml
+    repoURL: https://github.com/GosYao/AegisShield.git
+    targetRevision: main
+    path: gitops/security/fortiaigate/chart   # Helm chart committed to Git repo
   destination:
     server: https://kubernetes.default.svc
     namespace: fortiaigate
@@ -30,5 +28,5 @@ spec:
     syncOptions:
       - CreateNamespace=true
     automated:
-      prune: false        # Never auto-prune FortiAIGate — manual gate for safety
+      prune: false    # Never auto-prune FortiAIGate — manual gate for safety
       selfHeal: false
