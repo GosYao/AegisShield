@@ -32,6 +32,51 @@ fortiaigate:
   gpu:
     enabled: false            # Disabled — GPU nodes fully used by KServe models
 
+# ── Demo CPU requests (production defaults are 1000m per scanner — too large for shared GKE nodes)
+# Limits are kept at production values so pods can burst when CPU is available.
+core:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 2Gi
+    limits:
+      cpu: "1"
+      memory: 4Gi
+
+scanners:
+  defaultResources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  sensitive:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 10Gi
+  anonymize:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 40Gi
+
+logd:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 # ── Storage (API and Core services) ───────────────────────────────────────────
 # Dynamic provisioning: leave existingPvName empty (default).
 # StorageClass must support ReadWriteMany (RWX).
