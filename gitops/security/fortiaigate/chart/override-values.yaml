@@ -73,6 +73,13 @@ postgresql:
 # ── Redis ─────────────────────────────────────────────────────────────────────
 redis:
   master:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
     persistence:
       size: 4Gi
       storageClass: nfs-rwx
