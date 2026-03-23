@@ -48,8 +48,12 @@ tls:
   cert: files/certificate/dflt.crt
   key: files/certificate/dflt.key
 
-# ── PostgreSQL — Bitnami default is 500m/1Gi; restored to production values ──
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+# Fixed passwords prevent secret drift across ArgoCD syncs (demo environment).
 postgresql:
+  auth:
+    password: "FortiAIGateDemo2024!"
+    postgresPassword: "FortiAIGateAdmin2024!"
   primary:
     persistence:
       size: 8Gi
