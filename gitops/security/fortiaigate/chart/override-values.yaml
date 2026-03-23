@@ -29,7 +29,7 @@ fortiaigate:
     pullSecrets: []           # Add imagePullSecret name if registry needs auth
 
   gpu:
-    enabled: true             # NVIDIA L4 acceleration for AI scanners (Triton)
+    enabled: false            # Disabled — GPU nodes fully used by KServe models
 
 # ── Storage (API and Core services) ───────────────────────────────────────────
 # Dynamic provisioning: leave existingPvName empty (default).
