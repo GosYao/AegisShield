@@ -14,10 +14,14 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.25"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.11"
+    }
   }
 
   backend "gcs" {
-    bucket = "aegis-tfstate"
+    bucket = "aegis-tfstate-gyao-bde-demo"
     prefix = "aegisshield/state"
   }
 }

@@ -46,7 +46,7 @@ class IntentEvaluator:
 
         try:
             response = await self.client.chat.completions.create(
-                model="microsoft/Phi-3-mini-4k-instruct",
+                model="phi-3-mini",
                 messages=[
                     {"role": "system", "content": EVALUATION_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
@@ -56,9 +56,22 @@ class IntentEvaluator:
             )
 
             raw = response.choices[0].message.content.strip()
-            lines = raw.split("\n", 1)
-            verdict = lines[0].strip().upper()
-            reason = lines[1].strip() if len(lines) > 1 else "No reason provided"
+            # TinyLlama prepends <|assistant|> and formats as "Response: BENIGN\nReason: ..."
+            # Scan every word in the response for BENIGN/MALICIOUS
+            import re
+            verdict = "UNKNOWN"
+            reason = "No reason provided"
+            lines = raw.split("\n")
+            for i, line in enumerate(lines):
+                words = re.findall(r"[A-Z]+", line.upper())
+                if "BENIGN" in words:
+                    verdict = "BENIGN"
+                    reason = " ".join(lines[i + 1:]).strip() or line.strip()
+                    break
+                if "MALICIOUS" in words:
+                    verdict = "MALICIOUS"
+                    reason = " ".join(lines[i + 1:]).strip() or line.strip()
+                    break
 
             if verdict not in ("BENIGN", "MALICIOUS"):
                 log.warning(

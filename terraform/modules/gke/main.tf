@@ -82,6 +82,8 @@ resource "google_container_node_pool" "system" {
       mode = "GKE_METADATA"
     }
 
+    spot = true
+
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"
     ]
@@ -116,6 +118,8 @@ resource "google_container_node_pool" "gpu" {
     workload_metadata_config {
       mode = "GKE_METADATA"
     }
+
+    spot = true
 
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"

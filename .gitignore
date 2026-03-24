@@ -1,0 +1,25 @@
+# Terraform state and local cache
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+terraform.tfvars.local
+
+# FortiAIGate license files — exclude stray copies from root or anywhere unexpected
+*.lic
+# …but intentionally commit license files placed inside the Helm chart directory
+!gitops/security/fortiaigate/chart/files/licenses/*.lic
+
+# FortiAIGate image archives and vendor docs (large binaries)
+FAIG_*.tar
+*.pdf
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# macOS
+.DS_Store

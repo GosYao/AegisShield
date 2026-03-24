@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AegisShield — Architecture Diagram</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f1117;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: #e2e8f0;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #f8fafc;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 0.85rem;
+    color: #64748b;
+    margin-bottom: 40px;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Canvas ── */
+  .canvas {
+    position: relative;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* ── Layers ── */
+  .layer {
+    border-radius: 14px;
+    padding: 18px 20px 22px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .layer-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    opacity: 0.7;
+  }
+  .layer-internet  { background: #1a1f2e; border: 1px solid #2d3748; }
+  .layer-l7        { background: #1a1a2e; border: 1px solid #e63946; }
+  .layer-mesh      { background: #0f2027; border: 1px solid #0ea5e9; }
+  .layer-gke       { background: #0d1f0d; border: 1px solid #22c55e; }
+  .layer-gcp       { background: #1a1500; border: 1px solid #f59e0b; }
+
+  .layer-label-l7   { color: #e63946; }
+  .layer-label-mesh { color: #0ea5e9; }
+  .layer-label-gke  { color: #22c55e; }
+  .layer-label-gcp  { color: #f59e0b; }
+  .layer-label-inet { color: #94a3b8; }
+
+  /* ── Row layout ── */
+  .row {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  /* ── Boxes ── */
+  .box {
+    border-radius: 10px;
+    padding: 12px 16px;
+    flex: 1;
+    min-width: 160px;
+    position: relative;
+  }
+  .box-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .box-sub {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    line-height: 1.4;
+  }
+  .box-tag {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-top: 6px;
+  }
+
+  /* box colors */
+  .box-user      { background: #1e293b; border: 1px solid #475569; }
+  .box-faig      { background: #2d0a0a; border: 1px solid #e63946; }
+  .box-agent     { background: #0c2340; border: 1px solid #3b82f6; }
+  .box-supervisor{ background: #1a0d2e; border: 1px solid #a855f7; }
+  .box-mistral   { background: #0a1f0a; border: 1px solid #4ade80; }
+  .box-phi3      { background: #0a1f0a; border: 1px solid #86efac; }
+  .box-cilium    { background: #0f1f1f; border: 1px solid #06b6d4; }
+  .box-ztunnel   { background: #0f1a2e; border: 1px solid #0ea5e9; }
+  .box-gcs       { background: #1a1200; border: 1px solid #f59e0b; }
+  .box-wi        { background: #1a1200; border: 1px solid #fbbf24; }
+  .box-rbac      { background: #1a0a1a; border: 1px solid #c084fc; }
+  .box-nodepool  { background: #0a1a0a; border: 1px solid #16a34a; }
+
+  .tag-red    { background: #7f1d1d; color: #fca5a5; }
+  .tag-blue   { background: #1e3a5f; color: #93c5fd; }
+  .tag-purple { background: #3b0764; color: #d8b4fe; }
+  .tag-green  { background: #14532d; color: #86efac; }
+  .tag-cyan   { background: #164e63; color: #67e8f9; }
+  .tag-amber  { background: #78350f; color: #fcd34d; }
+  .tag-gray   { background: #334155; color: #cbd5e1; }
+
+  /* ── Arrows ── */
+  .arrows {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin: 4px 0;
+  }
+  .arrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.68rem;
+    color: #64748b;
+  }
+  .arrow-line {
+    font-size: 1rem;
+    color: #475569;
+  }
+  .arrow.benign  { color: #4ade80; }
+  .arrow.malicious { color: #f87171; }
+  .arrow.blocked { color: #f87171; }
+  .arrow.allowed { color: #4ade80; }
+
+  /* ── Split layout for mesh layer ── */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+  .split-mid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-top: 30px;
+    gap: 4px;
+    font-size: 0.65rem;
+    color: #475569;
+  }
+
+  /* ── Node pools ── */
+  .pools {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .pool {
+    border-radius: 8px;
+    padding: 10px 14px;
+    border: 1px dashed #16a34a;
+    background: #071207;
+  }
+  .pool-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #4ade80;
+    margin-bottom: 6px;
+  }
+  .pool-item {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    padding: 2px 0;
+    border-left: 2px solid #1d4ed8;
+    padding-left: 6px;
+    margin-bottom: 3px;
+  }
+  .pool-item.gpu-item {
+    border-left-color: #16a34a;
+  }
+  .pool-spot {
+    font-size: 0.6rem;
+    color: #f59e0b;
+    margin-top: 4px;
+  }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 28px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.68rem;
+    color: #94a3b8;
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Flow numbers ── */
+  .flow-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #1e293b;
+    border: 1px solid #475569;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #94a3b8;
+    flex-shrink: 0;
+  }
+  .flow-num.active { background: #1e3a5f; border-color: #3b82f6; color: #93c5fd; }
+  .flow-num.good   { background: #14532d; border-color: #16a34a; color: #4ade80; }
+  .flow-num.bad    { background: #7f1d1d; border-color: #dc2626; color: #fca5a5; }
+</style>
+</head>
+<body>
+
+<h1>AegisShield</h1>
+<p class="subtitle">Zero-Trust Agentic AI Security Sandbox on GKE &nbsp;·&nbsp; gyao-bde-demo / us-central1-a</p>
+
+<div class="canvas">
+
+  <!-- ══ INTERNET ══ -->
+  <div class="layer layer-internet">
+    <div class="layer-label layer-label-inet">⬤ Internet / User</div>
+    <div class="row">
+      <div class="box box-user" style="max-width:200px">
+        <div class="box-title">👤 User</div>
+        <div class="box-sub">POST /chat<br>{ "message": "..." }</div>
+      </div>
+      <div style="flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:4px;">
+        <div class="arrow"><span class="flow-num active">1</span> <span class="arrow-line">──────────────────►</span> HTTPS request</div>
+        <div class="arrow blocked"><span class="flow-num bad">✕</span> <span class="arrow-line">◄──────────────────</span> 403 if injection / PII detected</div>
+      </div>
+      <div class="box box-faig" style="max-width:260px">
+        <div class="box-title">🛡️ FortiAIGate 8.0.0</div>
+        <div class="box-sub">Ingress · namespace: fortiaigate<br>AI Flow → AI Guard pipeline</div>
+        <span class="box-tag tag-red">L7 WAF / DLP</span>
+        <span class="box-tag tag-red">Prompt Injection</span>
+        <span class="box-tag tag-red">Toxicity</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- arrow down -->
+  <div class="arrows">
+    <div class="arrow allowed"><span class="flow-num good">2</span>&nbsp; ALLOWED request forwarded to Agent ▼</div>
+  </div>
+
+  <!-- ══ AEGIS-MESH / AMBIENT MESH ══ -->
+  <div class="layer layer-mesh">
+    <div class="layer-label layer-label-mesh">⬤ aegis-mesh namespace &nbsp;·&nbsp; Istio Ambient Mode (ztunnel mTLS, no sidecars)</div>
+
+    <div class="split">
+
+      <!-- LEFT: Agent -->
+      <div>
+        <div class="box box-agent">
+          <div class="box-title">🤖 Agent Pod</div>
+          <div class="box-sub">
+            FastAPI /chat<br>
+            LangChain AgentExecutor<br>
+            Mistral-7B via OpenAI SDK<br>
+            KSA: agent-ksa
+          </div>
+          <span class="box-tag tag-blue">port 8080</span>
+          <span class="box-tag tag-blue">pool: system</span>
+        </div>
+        <div style="margin-top:10px; font-size:0.68rem; color:#475569; padding-left:4px;">
+          Every tool call → pre-cleared by Supervisor ➜
+        </div>
+      </div>
+
+      <!-- MID: arrows -->
+      <div class="split-mid">
+        <div class="arrow" style="flex-direction:column; gap:2px;">
+          <div><span class="flow-num active">3</span> POST /evaluate →</div>
+          <div style="font-size:0.65rem; color:#475569;">(intent + action)</div>
+        </div>
+        <div style="font-size:1.4rem; color:#475569;">⇄</div>
+        <div class="arrow" style="flex-direction:column; gap:2px;">
+          <div>← verdict</div>
+          <div class="arrow benign" style="font-size:0.65rem;">BENIGN / MALICIOUS</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Supervisor -->
+      <div>
+        <div class="box box-supervisor">
+          <div class="box-title">🔍 Supervisor Pod</div>
+          <div class="box-sub">
+            FastAPI /evaluate<br>
+            phi-3-mini intent classifier<br>
+            Fail-closed: unreachable → MALICIOUS<br>
+            KSA: supervisor-ksa
+          </div>
+          <span class="box-tag tag-purple">port 8081</span>
+          <span class="box-tag tag-purple">pool: system</span>
+        </div>
+        <div style="margin-top:8px; display:flex; gap:8px;">
+          <div class="box box-rbac" style="flex:1; min-width:0;">
+            <div class="box-title" style="font-size:0.72rem;">⚡ RBAC Enforcer</div>
+            <div class="box-sub">Role (not ClusterRole)<br>get/list/delete pods<br>aegis-mesh NS only</div>
+            <span class="box-tag tag-purple">MALICIOUS → delete pod</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Outcomes row -->
+    <div class="row" style="margin-top:14px;">
+      <div class="box box-ztunnel" style="flex:none; min-width:0; padding:8px 12px;">
+        <div class="box-title" style="font-size:0.72rem;">🔐 ztunnel</div>
+        <div class="box-sub">mTLS all pod-to-pod<br>no sidecars injected</div>
+      </div>
+      <div class="box box-cilium" style="flex:none; min-width:0; padding:8px 12px;">
+        <div class="box-title" style="font-size:0.72rem;">🔒 Cilium L4 Policies</div>
+        <div class="box-sub">
+          Agent egress: KServe DNS + Google APIs only<br>
+          Supervisor egress: phi-3-mini + kube-apiserver only
+        </div>
+        <span class="box-tag tag-cyan">ADVANCED_DATAPATH</span>
+      </div>
+      <div class="arrow benign" style="flex:none; align-self:center;">
+        <span class="flow-num good">4</span>&nbsp; BENIGN → GCS read (Workload Identity)
+      </div>
+      <div class="arrow malicious" style="flex:none; align-self:center;">
+        <span class="flow-num bad">✕</span>&nbsp; MALICIOUS → agent pod deleted
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ GKE / GPU POOL ══ -->
+  <div class="layer layer-gke">
+    <div class="layer-label layer-label-gke">⬤ GKE Cluster: aegis-cluster &nbsp;·&nbsp; KServe InferenceServices (GPU pool)</div>
+    <div class="row">
+      <div class="box box-mistral">
+        <div class="box-title">🧠 Mistral-7B-Instruct</div>
+        <div class="box-sub">
+          KServe InferenceService<br>
+          vLLM backend · HF model<br>
+          mistral-7b-predictor.aegis-mesh<br>
+          /openai/v1
+        </div>
+        <span class="box-tag tag-green">~14 GB VRAM</span>
+        <span class="box-tag tag-green">Agent LLM</span>
+      </div>
+      <div class="box box-phi3">
+        <div class="box-title">🧠 phi-3-mini-4k-instruct</div>
+        <div class="box-sub">
+          KServe InferenceService<br>
+          vLLM backend · HF model<br>
+          phi-3-mini-predictor.aegis-mesh<br>
+          /openai/v1
+        </div>
+        <span class="box-tag tag-green">~8 GB VRAM</span>
+        <span class="box-tag tag-green">Supervisor classifier</span>
+      </div>
+      <div class="box box-nodepool" style="flex:1.2;">
+        <div class="pool-title">Node Pools (Spot VMs)</div>
+        <div class="pools">
+          <div class="pool">
+            <div class="pool-title">system-pool</div>
+            <div class="pool-item">e2-standard-4 × 2</div>
+            <div class="pool-item">Agent pod</div>
+            <div class="pool-item">Supervisor pod</div>
+            <div class="pool-item">ArgoCD, FortiAIGate</div>
+            <div class="pool-spot">⚡ Spot VM</div>
+          </div>
+          <div class="pool">
+            <div class="pool-title">gpu-pool</div>
+            <div class="pool-item gpu-item">g2-standard-4 × 2</div>
+            <div class="pool-item gpu-item">NVIDIA L4 · 24 GB VRAM</div>
+            <div class="pool-item gpu-item">Mistral-7B (node 1)</div>
+            <div class="pool-item gpu-item">phi-3-mini (node 2)</div>
+            <div class="pool-spot">⚡ Spot VM — higher preemption risk</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ GCP SERVICES ══ -->
+  <div class="layer layer-gcp">
+    <div class="layer-label layer-label-gcp">⬤ GCP Services</div>
+    <div class="row">
+      <div class="box box-gcs">
+        <div class="box-title">🪣 Cloud Storage</div>
+        <div class="box-sub">
+          bucket: aegis-financial-data<br>
+          q3-summary.json (seed data)<br>
+          Agent reads via Workload Identity
+        </div>
+        <span class="box-tag tag-amber">roles/storage.objectViewer</span>
+      </div>
+      <div class="box box-wi">
+        <div class="box-title">🔑 Workload Identity</div>
+        <div class="box-sub">
+          agent-ksa → aegis-agent-sa<br>
+          @gyao-bde-demo.iam.gserviceaccount.com<br>
+          No JSON keys mounted anywhere
+        </div>
+        <span class="box-tag tag-amber">GKE_METADATA mode</span>
+      </div>
+      <div class="box box-gcs" style="border-color:#38bdf8;">
+        <div class="box-title">🌐 VPC / NAT</div>
+        <div class="box-sub">
+          Private nodes · public endpoint<br>
+          Cloud Router + Cloud NAT<br>
+          Pods: 10.20.0.0/16<br>
+          Services: 10.30.0.0/20
+        </div>
+        <span class="box-tag tag-cyan">us-central1-a</span>
+      </div>
+      <div class="box box-gcs" style="border-color:#a855f7;">
+        <div class="box-title">🚀 Artifact Registry</div>
+        <div class="box-sub">
+          us-central1-docker.pkg.dev<br>
+          /gyao-bde-demo/aegis-repo<br>
+          aegis-agent · aegis-supervisor<br>
+          FortiAIGate images
+        </div>
+        <span class="box-tag tag-purple">gyao-bde-demo</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ LEGEND ══ -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#e63946"></div> L7 FortiAIGate WAF/DLP</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div> Agent (LangChain + Mistral)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a855f7"></div> Supervisor (phi-3-mini classifier)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div> KServe InferenceServices (GPU)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div> Cilium L4 Network Policy</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#0ea5e9"></div> ztunnel mTLS (Ambient)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div> GCP Services (GCS, WI, NAT)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f87171"></div> Blocked / MALICIOUS path</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#4ade80"></div> Allowed / BENIGN path</div>
+  </div>
+
+  <!-- ══ REQUEST FLOW STEPS ══ -->
+  <div style="margin-top:32px; background:#0f1117; border:1px solid #1e293b; border-radius:12px; padding:20px 24px;">
+    <div style="font-size:0.75rem; font-weight:700; letter-spacing:0.1em; color:#64748b; margin-bottom:14px;">REQUEST FLOW</div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <div class="arrow"><span class="flow-num active">1</span>&nbsp; User sends POST /chat → FortiAIGate Ingress</div>
+      <div class="arrow blocked"><span class="flow-num bad">✕</span>&nbsp; FortiAIGate Input Guard: prompt injection / PII detected → 403 returned, request never reaches Agent</div>
+      <div class="arrow allowed"><span class="flow-num good">2</span>&nbsp; FortiAIGate ALLOWED → forwards request to Agent pod /chat (aegis-mesh)</div>
+      <div class="arrow"><span class="flow-num active">3</span>&nbsp; Agent calls Supervisor POST /evaluate with action + intent before every tool execution</div>
+      <div class="arrow malicious"><span class="flow-num bad">✕</span>&nbsp; Supervisor verdict MALICIOUS → enforcer deletes agent pod via in-cluster RBAC (grace_period=0)</div>
+      <div class="arrow benign"><span class="flow-num good">4</span>&nbsp; Supervisor verdict BENIGN → Agent executes GCS read via Workload Identity → response → FortiAIGate Output Guard → User</div>
+    </div>
+  </div>
+
+</div><!-- /canvas -->
+</body>
+</html>

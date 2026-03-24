@@ -24,14 +24,11 @@ spec:
           protocol: TCP
 
   egress:
-    # DNS
+    # DNS — allow to all kube-system pods (covers kube-dns and node-local-dns)
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
       ports:
         - port: 53
           protocol: UDP

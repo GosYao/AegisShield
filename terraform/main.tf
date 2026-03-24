@@ -16,7 +16,6 @@ resource "google_project_service" "apis" {
     "gkehub.googleapis.com",
     "iam.googleapis.com",
     "storage.googleapis.com",
-    "servicemesh.googleapis.com",
     "anthos.googleapis.com",
     "connectgateway.googleapis.com",
     "cloudresourcemanager.googleapis.com",
@@ -67,16 +66,23 @@ resource "google_gke_hub_feature" "mesh" {
   depends_on = [module.gke, google_project_service.apis]
 }
 
+# Wait for the Hub servicemesh feature to fully propagate before attaching membership
+resource "time_sleep" "wait_for_mesh_feature" {
+  create_duration = "60s"
+  depends_on      = [google_gke_hub_feature.mesh]
+}
+
 resource "google_gke_hub_feature_membership" "mesh_membership" {
-  provider   = google-beta
-  location   = "global"
-  feature    = google_gke_hub_feature.mesh.name
-  membership = "${var.zone}/memberships/${var.cluster_name}"
-  project    = var.project_id
+  provider            = google-beta
+  location            = "global"
+  feature             = google_gke_hub_feature.mesh.name
+  membership          = var.cluster_name
+  membership_location = var.region
+  project             = var.project_id
 
   mesh {
     management = "MANAGEMENT_AUTOMATIC"
   }
 
-  depends_on = [google_gke_hub_feature.mesh]
+  depends_on = [time_sleep.wait_for_mesh_feature]
 }

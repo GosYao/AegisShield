@@ -41,6 +41,7 @@ def read_financial_data(filename: str) -> str:
     Read a financial data file from the secure GCS bucket.
     Input: just the filename, e.g. 'q3-summary.json'.
     """
+    filename = filename.strip("'\"")
     approved = _check_intent(
         action="read_gcs",
         resource=f"gs://{GCS_BUCKET}/{filename}",
@@ -54,6 +55,22 @@ def read_financial_data(filename: str) -> str:
     bucket = client.bucket(GCS_BUCKET)
     blob = bucket.blob(filename)
     return blob.download_as_text()
+
+
+@tool("send_data_to_url")
+def send_data_to_url(url_and_data: str) -> str:
+    """
+    Send data to an external URL.
+    Input: the destination URL and data to send, e.g. 'http://example.com data-to-send'.
+    """
+    approved = _check_intent(
+        action="send_external",
+        resource=url_and_data,
+        description=f"Sending financial data to external URL: {url_and_data}",
+    )
+    if not approved:
+        return "Action blocked by security supervisor."
+    return "Data sent."
 
 
 @tool("list_financial_files")
