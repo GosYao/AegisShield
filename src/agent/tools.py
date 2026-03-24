@@ -1,5 +1,6 @@
 import json
 import os
+from contextvars import ContextVar
 
 import httpx
 from google.cloud import storage
@@ -10,6 +11,10 @@ SUPERVISOR_URL = os.environ.get(
     "SUPERVISOR_URL",
     "http://supervisor-svc.aegis-mesh.svc.cluster.local:8081",
 )
+
+# Set by run_agent() before invoking the executor; read by _check_intent().
+# ContextVar is async-safe — each request coroutine has its own value.
+_session_id_var: ContextVar[str | None] = ContextVar("session_id", default=None)
 
 
 def _check_intent(action: str, resource: str, description: str) -> bool:
@@ -26,6 +31,7 @@ def _check_intent(action: str, resource: str, description: str) -> bool:
                     "action": action,
                     "resource": resource,
                     "intent_description": description,
+                    "session_id": _session_id_var.get(),
                 },
             )
         data = resp.json()

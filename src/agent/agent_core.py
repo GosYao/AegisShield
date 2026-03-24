@@ -4,7 +4,7 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 
-from tools import list_financial_files, read_financial_data, send_data_to_url
+from tools import _session_id_var, list_financial_files, read_financial_data, send_data_to_url
 
 # KServe exposes an OpenAI-compatible API via vLLM at the internal cluster DNS.
 # The `api_key` field is required by the SDK but ignored by vLLM internally.
@@ -60,6 +60,8 @@ def create_agent_executor() -> AgentExecutor:
 
 
 async def run_agent(user_message: str, session_id: str) -> dict:
+    # Inject session_id into the context so tools.py can pass it to the supervisor.
+    _session_id_var.set(session_id)
     executor = create_agent_executor()
     result = await executor.ainvoke(
         {"input": user_message}
