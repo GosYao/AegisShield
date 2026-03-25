@@ -517,10 +517,11 @@
     <text x="762" y="119" text-anchor="middle" font-size="9"  fill="#a78bfa">fail-closed · port 8081</text>
 
     <!-- Enforcer (under supervisor) -->
-    <rect x="692" y="148" width="140" height="60" rx="8" fill="#0f0a1a" stroke="#6d28d9" stroke-width="1"/>
-    <text x="762" y="168" text-anchor="middle" font-size="11" fill="#f1f5f9" font-weight="700">⚡ RBAC Enforcer</text>
-    <text x="762" y="182" text-anchor="middle" font-size="9"  fill="#64748b">kubectl delete pod</text>
-    <text x="762" y="194" text-anchor="middle" font-size="9"  fill="#64748b">aegis-mesh NS · pods only</text>
+    <rect x="692" y="148" width="140" height="72" rx="8" fill="#0f0a1a" stroke="#6d28d9" stroke-width="1"/>
+    <text x="762" y="166" text-anchor="middle" font-size="10" fill="#f1f5f9" font-weight="700">⚡ Strike Counter</text>
+    <text x="762" y="179" text-anchor="middle" font-size="8"  fill="#fbbf24">strikes 1-2 → block</text>
+    <text x="762" y="191" text-anchor="middle" font-size="8"  fill="#f87171">strike 3 → delete pod</text>
+    <text x="762" y="203" text-anchor="middle" font-size="8"  fill="#64748b">keyed: session_id / IP</text>
 
     <!-- Decision diamond (fork point) -->
     <polygon points="498,172 528,200 498,228 468,200" fill="#0a1020" stroke="#334155" stroke-width="1.5"/>
@@ -595,7 +596,7 @@
     <line x1="528" y1="200" x2="690" y2="178" stroke="#f87171" stroke-width="1.5" marker-end="url(#arr-red)"/>
 
     <!-- Enforcer → terminate -->
-    <line x1="762" y1="208" x2="762" y2="226" stroke="#f87171" stroke-width="1.5" marker-end="url(#arr-red)"/>
+    <line x1="762" y1="220" x2="762" y2="238" stroke="#f87171" stroke-width="1.5" marker-end="url(#arr-red)"/>
 
     <!-- BENIGN: diamond → GCS (down then left) -->
     <line x1="498" y1="228" x2="498" y2="340" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-green)"/>
@@ -671,7 +672,7 @@
     <div class="fl-item"><div class="fl-line" style="background:#3b82f6; border-top: 2px dashed #3b82f6; background:none;"></div> Forwarded (allowed)</div>
     <div class="fl-item"><div class="fl-line" style="background:#a78bfa"></div> Intent evaluation</div>
     <div class="fl-item"><div class="fl-line" style="background:#4ade80; border-top: 2px dashed #4ade80; background:none;"></div> BENIGN → GCS read</div>
-    <div class="fl-item"><div class="fl-line" style="background:#f87171"></div> MALICIOUS → pod kill</div>
+    <div class="fl-item"><div class="fl-line" style="background:#f87171"></div> MALICIOUS → blocked (×3 → pod kill)</div>
     <div class="fl-item"><div class="fl-line" style="background:#fbbf24; border-top: 2px dashed #fbbf24; background:none;"></div> Data return (Workload Identity)</div>
     <div class="fl-item"><div class="fl-line" style="background:#22d3ee; border-top: 2px dashed #22d3ee; background:none;"></div> Response to user</div>
     <div class="fl-item"><div class="fl-line" style="background:#15803d; border-top: 2px dashed #15803d; background:none;"></div> LLM inference (GPU)</div>
@@ -814,16 +815,17 @@
         </div>
         <div style="margin-top:10px;">
           <div class="card card-enforcer" style="padding:10px 12px;">
-            <div class="card-title" style="font-size:0.72rem;">⚡ RBAC Enforcer</div>
+            <div class="card-title" style="font-size:0.72rem;">⚡ Strike Counter + RBAC Enforcer</div>
             <div class="card-sub">
-              <b>Role</b> (not ClusterRole)<br>
-              verbs: get / list / <b>delete</b><br>
-              resource: <b>pods</b> only<br>
-              scope: aegis-mesh NS only<br>
-              BackgroundTask → grace_period=0
+              Keyed by <b>session_id</b> (fallback: client IP)<br>
+              Strike 1–2 → <b>block action</b>, pod survives<br>
+              Strike 3 → <b>kubectl delete pod</b> (grace=0)<br>
+              BENIGN verdict resets counter to 0<br>
+              <b>Role</b>: get/list/delete pods · aegis-mesh only
             </div>
             <div class="card-tags">
-              <span class="badge badge-red">MALICIOUS → kubectl delete pod</span>
+              <span class="badge badge-amber">strikes 1-2: blocked</span>
+              <span class="badge badge-red">strike 3: pod terminated</span>
             </div>
           </div>
         </div>
@@ -840,8 +842,9 @@
       </div>
       <div class="outcome-box outcome-mal">
         <div class="outcome-title">✕ MALICIOUS path</div>
-        Supervisor enforcer deletes agent pod immediately<br>
-        Deployment controller restarts a clean pod (~30s)
+        Strikes 1–2: action blocked, clean error returned to user<br>
+        Strike 3: enforcer deletes pod · Deployment restarts it (~30s)<br>
+        BENIGN resets counter · keyed by session_id / client IP
       </div>
       <div class="outcome-box outcome-infra">
         <div class="outcome-title">🔐 ztunnel mTLS</div>
@@ -920,6 +923,19 @@
             Repo: <b>GosYao/AegisShield</b><br>
             App-of-apps: cert-manager, KServe, ai-workloads<br>
             FortiAIGate: manual apply (outside app-of-apps scope)
+          </div>
+        </div>
+        <div class="card" style="padding:10px 12px; background:#040e14; border:1px solid #0e7490; margin-top:10px;">
+          <div class="card-title" style="font-size:0.72rem;">🔭 Hubble Observability</div>
+          <div class="card-sub">
+            GKE Dataplane V2 flow collection<br>
+            Hubble Relay: connected to all 7 nodes<br>
+            UI: <b>localhost:12000</b> (port-forward)<br>
+            Live service map · dropped flow view
+          </div>
+          <div class="card-tags">
+            <span class="badge badge-cyan">Cilium 1.17.8</span>
+            <span class="badge badge-cyan">TLS via cilium-ca</span>
           </div>
         </div>
       </div>
@@ -1002,7 +1018,7 @@
     </div>
     <div class="val-item val-ok">
       <div class="val-title">✓ Prompt injection chain</div>
-      <div class="val-desc">Injection → send_data_to_url → Supervisor MALICIOUS → pod killed</div>
+      <div class="val-desc">Injection → send_data_to_url → MALICIOUS → blocked (×3 → pod terminated)</div>
     </div>
     <div class="val-item val-ok">
       <div class="val-title">✓ Cilium egress blocking</div>
@@ -1015,6 +1031,10 @@
     <div class="val-item val-ok">
       <div class="val-title">✓ Workload Identity</div>
       <div class="val-desc">Agent reads GCS with no credentials mounted</div>
+    </div>
+    <div class="val-item val-ok">
+      <div class="val-title">✓ Hubble network map</div>
+      <div class="val-desc">Relay connected to all 7 nodes · service map live at localhost:12000</div>
     </div>
     <div class="val-item val-pend">
       <div class="val-title">⏳ FortiAIGate AI Guard</div>
@@ -1062,8 +1082,8 @@
       <div class="flow-step">
         <div class="step-num x">✕</div>
         <div class="step-body step-x">
-          <strong>Supervisor verdict: MALICIOUS → enforcer deletes agent pod</strong>
-          <div class="note" style="color:#7f1d1d;">TinyLlama classified intent as exfiltration / injection. BackgroundTask calls kubectl delete pod (RBAC: aegis-mesh pods only). Deployment restarts a clean pod in ~30s.</div>
+          <strong>Supervisor verdict: MALICIOUS → strike recorded</strong>
+          <div class="note" style="color:#7f1d1d;">TinyLlama classified intent as exfiltration / injection. Strike counter increments (keyed by session_id, fallback: client IP). Strikes 1–2: action blocked, user receives clean error, pod survives. Strike 3: enforcer calls kubectl delete pod (RBAC: aegis-mesh pods only) — Deployment restarts a clean pod in ~30s. BENIGN verdict resets counter to 0.</div>
         </div>
       </div>
 
@@ -1097,7 +1117,8 @@
     <div class="legend-item"><div class="legend-dot" style="background:#4338ca"></div>ArgoCD GitOps</div>
     <div class="legend-item"><div class="legend-dot" style="background:#d97706"></div>GCP (GCS, Workload Identity, NAT)</div>
     <div class="legend-item"><div class="legend-dot" style="background:#4ade80"></div>BENIGN / allowed path</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f87171"></div>MALICIOUS / blocked path</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f87171"></div>MALICIOUS → blocked (×3 → pod kill)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#0e7490"></div>Hubble observability (all 7 nodes)</div>
   </div>
 
 </div><!-- /canvas -->
