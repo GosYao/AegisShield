@@ -13,11 +13,11 @@ global:
   # License mapping: one .lic file per GKE worker node.
   # Place .lic files in: gitops/security/fortiaigate/chart/files/licenses/
   # Get node names after terraform apply: kubectl get nodes
-  # Current license file: FAIGCNSD26000104.lic (placed in files/licenses/)
+  # License files: FAIGCNSD26000104.lic, FAIGCNSD26000135.lic (placed in files/licenses/)
   # Format: "node-name": "files/licenses/<filename>.lic"
   licenses:
     "gke-aegis-cluster-system-pool-0d923f07-342h": "files/licenses/FAIGCNSD26000104.lic"
-    "gke-aegis-cluster-system-pool-0d923f07-crkl": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-0d923f07-crkl": "files/licenses/FAIGCNSD26000135.lic"
     "gke-aegis-cluster-system-pool-0d923f07-hxjm": "files/licenses/FAIGCNSD26000104.lic"
 
 # ── FortiAIGate image & GPU ───────────────────────────────────────────────────
