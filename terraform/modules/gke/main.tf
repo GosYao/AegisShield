@@ -7,6 +7,7 @@ resource "google_container_cluster" "aegis" {
   # Remove default node pool; manage pools separately
   remove_default_node_pool = true
   initial_node_count       = 1
+  deletion_protection      = false
 
   network    = var.network_self_link
   subnetwork = var.subnet_self_link
@@ -66,12 +67,13 @@ resource "google_container_cluster" "aegis" {
 }
 
 # System node pool — CPU workloads (ArgoCD, agent, supervisor, FortiAIGate)
+# 3 nodes required: 2 nodes hit CPU saturation with FortiAIGate scanners running alongside ArgoCD/KServe.
 resource "google_container_node_pool" "system" {
   name       = "system-pool"
   cluster    = google_container_cluster.aegis.name
   location   = var.zone
   project    = var.project_id
-  node_count = 2
+  node_count = 3
 
   node_config {
     machine_type = "e2-standard-4"
