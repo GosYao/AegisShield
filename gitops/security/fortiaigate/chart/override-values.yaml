@@ -63,6 +63,52 @@ postgresql:
       size: 8Gi
       storageClass: nfs-rwx
 
+# ── Demo CPU/memory requests ──────────────────────────────────────────────────
+# Production defaults are 1000m CPU + 6Gi memory per scanner — too large for
+# shared e2-standard-4 nodes. Limits kept at production values to allow bursting.
+core:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 2Gi
+    limits:
+      cpu: "1"
+      memory: 4Gi
+
+scanners:
+  defaultResources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  sensitive:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 10Gi
+  anonymize:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 40Gi
+
+logd:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 # ── Redis ─────────────────────────────────────────────────────────────────────
 redis:
   master:
