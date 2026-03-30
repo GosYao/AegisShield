@@ -52,13 +52,27 @@ postgresql:
     password: "FortiAIGateDemo2024!"
     postgresPassword: "FortiAIGateAdmin2024!"
   primary:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 1Gi
+      limits:
+        cpu: "1"
+        memory: 4Gi
     persistence:
       size: 8Gi
       storageClass: nfs-rwx
 
-# ── Redis — Bitnami default is 250m/512Mi; restored to production values ─────
+# ── Redis ─────────────────────────────────────────────────────────────────────
 redis:
   master:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
     persistence:
       size: 4Gi
       storageClass: nfs-rwx
