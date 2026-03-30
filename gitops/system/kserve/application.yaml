@@ -5,6 +5,9 @@ metadata:
   namespace: argocd
 spec:
   project: default
+  # KServe is installed directly via raw GitHub release manifests in bringup.sh.
+  # OCI Helm registry (ghcr.io/kserve/charts) returns 403 on GKE without registry auth.
+  # This Application is kept for visibility only — automated sync is disabled.
   sources:
     - repoURL: oci://ghcr.io/kserve/charts
       chart: kserve-crd
@@ -22,10 +25,4 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: kserve
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
+  syncPolicy: {}

@@ -16,9 +16,8 @@ global:
   # License files: FAIGCNSD26000104.lic, FAIGCNSD26000135.lic (placed in files/licenses/)
   # Format: "node-name": "files/licenses/<filename>.lic"
   licenses:
-    "gke-aegis-cluster-system-pool-0d923f07-342h": "files/licenses/FAIGCNSD26000104.lic"
-    "gke-aegis-cluster-system-pool-0d923f07-crkl": "files/licenses/FAIGCNSD26000135.lic"
-    "gke-aegis-cluster-system-pool-0d923f07-hxjm": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-83c99e06-4wc6": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-83c99e06-7zkx": "files/licenses/FAIGCNSD26000135.lic"
 
 # ── FortiAIGate image & GPU ───────────────────────────────────────────────────
 fortiaigate:
