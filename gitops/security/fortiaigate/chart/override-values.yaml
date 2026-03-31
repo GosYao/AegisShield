@@ -25,6 +25,13 @@ fortiaigate:
 
 triton:
   replicas: 1                 # CPU-only — GPU nodes fully used by KServe; slower but functional for demo
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+    limits:
+      cpu: "2"
+      memory: 8Gi
 
 # ── Storage (API and Core services) ───────────────────────────────────────────
 storage:
