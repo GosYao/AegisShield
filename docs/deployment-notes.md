@@ -353,24 +353,22 @@ curl -X POST http://localhost:8080/chat \
 
 ---
 
-## Current State (2026-03-24)
+## Current State (2026-03-30)
 
 | Component | Status | Notes |
 |---|---|---|
-| FortiAIGate (all 20 pods) | ✓ Running | core pinned to mfs2 node |
-| FortiAIGate ingress | ✓ `35.202.64.42` | nginx ingress controller installed |
-| FortiAIGate WebUI | ✓ Accessible | AI Guard/Flow onboarding pending |
-| FortiAIGate licenses | ⚠ 1 of 5 needed | Additional licenses requested from FortiCare |
-| Mistral-7B InferenceService | ✓ Ready | GPU pool recreated as on-demand (no --spot) |
-| TinyLlama InferenceService | ✓ Ready | GPU pool recreated as on-demand (no --spot) |
+| FortiAIGate (all 16 pods) | ✓ Running | All pods Running after 3-node system pool |
+| FortiAIGate ingress | ⚠ IP changed | Get new IP: `kubectl get svc -n fortiaigate` |
+| FortiAIGate WebUI | ⚠ Onboarding pending | AI Provider → AI Guard → AI Flow not yet configured |
+| FortiAIGate licenses | ✓ 2 licenses | FAIGCNSD26000104 + FAIGCNSD26000135, mapped to 3 system nodes |
+| Mistral-7B InferenceService | ✓ Ready | Spot GPU nodes; recreate as on-demand if preempted |
+| TinyLlama InferenceService | ✓ Ready | Spot GPU nodes; recreate as on-demand if preempted |
 | aegis-agent pod | ✓ Running | ReAct agent; session_id threaded via ContextVar |
 | aegis-supervisor pod | ✓ Running | Session-based strike counter (limit=3) |
 | Workload Identity | ✓ Verified | `aegis-agent-sa@gyao-bde-demo.iam.gserviceaccount.com` |
 | Supervisor RBAC (delete pods) | ✓ Verified | |
 | Egress blocking | ✓ Verified | curl timeout to external URLs |
-| Benign query chain | ✓ Validated | GCS data returned end-to-end |
-| Malicious injection chain | ✓ Validated | Strike counter blocks; pod killed at strike 3 |
-| Hubble observability | ✓ Running | Relay connected to all 7 nodes; UI at localhost:12000 |
+| Hubble observability | ✓ Running | Relay connected to all nodes; UI at localhost:12000 |
 
 ---
 
@@ -751,6 +749,300 @@ kubectl exec -n aegis-mesh deploy/aegis-agent -- curl -m 5 https://example.com
 
 ---
 
+## Bringup Session — 2026-03-31
+
+Second full bringup of the cluster. Most issues relate to FortiAIGate configuration, license activation, and enabling Triton for AI scanners.
+
+---
+
+### Issue 1: FortiAIGate ingress had no ADDRESS (nginx not installed)
+
+**Symptom**: `kubectl get ingress -n fortiaigate` showed an empty ADDRESS column. No external IP to reach the WebUI.
+
+**Root cause**: `override-values.yaml` sets `ingress.className: nginx`, but the nginx ingress controller was never installed in the cluster. GKE's built-in HTTP load balancer uses a different IngressClass (`gce`) and was not configured.
+
+**Fix**: Install nginx ingress controller via Helm:
+```bash
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update ingress-nginx
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace \
+  --set controller.service.type=LoadBalancer
+```
+Wait ~2 minutes for the LoadBalancer IP to be assigned, then confirm:
+```bash
+kubectl get svc -n ingress-nginx ingress-nginx-controller
+```
+FortiAIGate ingress IP after this install: **`34.58.94.237`**
+
+---
+
+### Issue 2: FortiAIGate admin password didn't work
+
+**Symptom**: Attempting to log into the WebUI with `Admin1234!` returned an invalid credentials error, even though the password hash had been written to the database.
+
+**Root cause**: Shell variable expansion bug. The bcrypt hash contains `$2b$12$...` — when this is stored in a bash variable and then interpolated into a double-quoted string for `psql -c`, bash expands `$2`, `$12`, etc. as positional parameters. The actual value written to the database was a mangled string starting with `b2jgMef...` instead of `$2b$12$...`.
+
+**Fix**: Write the SQL to a file first and use `psql -f` to avoid shell expansion:
+```bash
+# Step 1: Generate the hash
+NEW_HASH=$(htpasswd -iBn -B -C 12 admin <<< "Admin1234!" | cut -d: -f2)
+
+# Step 2: Write SQL to a temp file (no shell expansion risk)
+cat > /tmp/reset_pw.sql <<'EOF'
+UPDATE "AIGate_User"
+SET password = 'PASTE_HASH_HERE',
+    login_required_password_change = false
+WHERE user_email = 'admin@example.com';
+EOF
+# Manually paste the hash value from $NEW_HASH into the file above
+
+# Step 3: Copy the file into the pod and execute it
+kubectl cp /tmp/reset_pw.sql \
+  fortiaigate/$(kubectl get pod -n fortiaigate -l app=postgresql -o name | head -1 | sed 's|pod/||'):/tmp/reset_pw.sql
+
+kubectl exec -n fortiaigate \
+  $(kubectl get pod -n fortiaigate -l app=postgresql -o name | head -1 | sed 's|pod/||') \
+  -- bash -c "PGPASSWORD=FortiAIGateDemo2024! /opt/bitnami/postgresql/bin/psql \
+    -U fortiaigate_postgres_user -d fortiaigate_db -f /tmp/reset_pw.sql"
+```
+
+**Current password**: `Admin1234!`
+
+---
+
+### Issue 3: FortiAIGate "No license detected" after login
+
+**Symptom**: After successfully logging into the WebUI, FortiAIGate showed a banner saying "No license detected." All license-manager pods were Running but the `core` pod was `0/1`.
+
+**Root cause**: Redis password drift. Earlier in the session, Redis was restarted/scaled, which regenerated the Redis password secret (from `F3x5YXQcXl` to `A0b5CsUzSn`). The license-manager pods (and other FortiAIGate pods) had the old password cached in memory and could no longer reach Redis. As a result, the license-manager could not write or read license state to Redis, and the `core` pod could not confirm a valid license status.
+
+**Fix**: Rolling restart all FortiAIGate deployments and DaemonSets so they re-read the current Redis secret:
+```bash
+kubectl rollout restart daemonset/license-manager -n fortiaigate
+kubectl rollout restart deployment -n fortiaigate
+```
+Wait ~2 minutes, then verify:
+```bash
+kubectl get pods -n fortiaigate
+# All pods should be 1/1 Running
+```
+
+---
+
+### Issue 4: FortiAIGate schema only shows OpenAI options
+
+**Symptom**: When creating the first AI Flow, the Schema dropdown only offered `/v1/chat/completions (openai)` and `/v1/responses (openai)`. There was no option for the agent's native `/chat` endpoint.
+
+**Root cause**: FortiAIGate 8.0.0 only supports the OpenAI wire protocol for its AI Flow routing. It cannot proxy arbitrary HTTP schemas. The agent's `/chat` endpoint accepted `{"message": "..."}` — not OpenAI format — so FortiAIGate could not route to it.
+
+**Fix**: Add an OpenAI-compatible `/v1/chat/completions` endpoint to the agent (`src/agent/main.py`):
+```python
+@app.post("/v1/chat/completions")
+async def openai_chat(request: dict[str, Any]):
+    messages = request.get("messages", [])
+    user_message = next(
+        (m["content"] for m in reversed(messages) if m.get("role") == "user"),
+        "",
+    )
+    session_id = request.get("user", "default")
+    result = await run_agent(user_message, session_id)
+    return {
+        "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": request.get("model", "aegis-agent"),
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": result["output"]},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+```
+Rebuild and push:
+```bash
+docker build --platform linux/amd64 src/agent/ \
+  -t us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-agent:latest
+docker push us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-agent:latest
+kubectl rollout restart deployment/aegis-agent -n aegis-mesh
+```
+
+**AI Flow configuration** (use these values in the WebUI):
+- **Entry path**: `/v1/chat/completions`
+- **Schema**: `openai` (matches the endpoint above)
+- **AI Provider endpoint**: `http://agent-svc.aegis-mesh.svc.cluster.local:8080`
+- **Model**: `mistral-7b` (the KServe InferenceService name, not the HuggingFace model ID)
+- **API key**: The key shown at `Settings → API Key` in the FortiAIGate WebUI (or `kubectl get secret -n fortiaigate fortiaigate-api-secret -o jsonpath='{.data.api-key}' | base64 -d`)
+
+---
+
+### Issue 5: GPU nodes preempted (Spot VMs)
+
+**Symptom**: Both GPU nodes disappeared. `kubectl get nodes` showed only system-pool nodes. Mistral-7B and phi-3-mini InferenceServices went to `0/1 READY` and the agent stopped responding.
+
+**Root cause**: GCP preempted both `g2-standard-4` Spot VMs. L4 GPU Spot VMs have high preemption rates due to demand.
+
+**Fix**: Delete and recreate the GPU pool as on-demand (no `--spot` flag):
+```bash
+gcloud container node-pools delete gpu-pool \
+  --cluster=aegis-cluster --zone=us-central1-a --project=gyao-bde-demo
+
+gcloud container node-pools create gpu-pool \
+  --cluster=aegis-cluster --zone=us-central1-a --project=gyao-bde-demo \
+  --machine-type=g2-standard-4 \
+  --accelerator=type=nvidia-l4,count=1,gpu-driver-version=latest \
+  --num-nodes=2 \
+  --node-taints=nvidia.com/gpu=present:NoSchedule \
+  --node-labels=cloud.google.com/gke-nodepool=gpu-pool
+```
+After nodes are Ready, KServe will reschedule the InferenceService pods. Mistral-7B (~14 GB) takes 10–20 minutes to download. Watch:
+```bash
+kubectl get inferenceservice -n aegis-mesh -w
+```
+
+**Note**: Terraform still has `spot = true` for the gpu-pool. For demos, either update Terraform or accept that you may need to recreate the pool after a `terraform apply`.
+
+---
+
+### Issue 6: curl to FortiAIGate returns 401 "API key required"
+
+**Symptom**: Testing the AI Flow with curl returned:
+```json
+{"detail": "API key required"}
+```
+
+**Root cause**: FortiAIGate requires an API key in the `Authorization` header for all `/v1/chat/completions` requests routed through the AI Flow.
+
+**Fix**: Include the Bearer token in the curl command:
+```bash
+API_KEY=$(kubectl get secret -n fortiaigate fortiaigate-api-secret \
+  -o jsonpath='{.data.api-key}' | base64 -d 2>/dev/null || \
+  # Or retrieve from FortiAIGate WebUI: Settings → API Key
+  echo "sk-your-key-here")
+
+curl -X POST https://34.58.94.237/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
+  --insecure \
+  -d '{"model": "mistral-7b", "messages": [{"role": "user", "content": "Summarize Q3 results"}]}'
+```
+
+---
+
+### Issue 7: curl returns 500 "triton-server DNS resolution failed"
+
+**Symptom**: After adding the Authorization header, the request returned HTTP 500 with:
+```json
+{"detail": "triton-server DNS resolution failed"}
+```
+This occurred even with Prompt Injection, Toxicity, and DLP scanners all disabled individually.
+
+**Root cause**: All FortiAIGate AI scanners (Prompt Injection, Toxicity, Sensitive Data/DLP, Anonymize) depend on NVIDIA Triton Inference Server to load their neural models. Triton was disabled in `override-values.yaml` (`triton.replicas: 0`) because GPU nodes were originally committed to KServe. Even with individual scanners toggled off in the AI Guard UI, the `core` pod's scanner pipeline still attempts to resolve `triton-server` at startup. With no Triton pod running, the DNS lookup fails and `core` returns 500 for all requests.
+
+**Fix**: Enable Triton in CPU-only mode with reduced memory:
+```yaml
+# In gitops/security/fortiaigate/chart/override-values.yaml
+triton:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+    limits:
+      cpu: "2"
+      memory: 8Gi
+```
+Commit and push; ArgoCD will sync automatically.
+
+---
+
+### Issue 8: Triton pod stuck Pending (insufficient memory on licensed nodes)
+
+**Symptom**: After enabling Triton, the pod stayed `Pending` for several minutes. `kubectl describe pod triton-server-xxx` showed:
+```
+0/3 nodes are available: 2 Insufficient memory, 1 node(s) didn't match Pod's node affinity
+```
+
+**Root cause**: The licensed nodes (`4wc6` and `7zkx`) were at ~82% memory requested (~2.4 GiB free each). Triton's original request was 12 GiB — later reduced to 4 GiB — but the node affinity in the Helm chart pinned Triton to licensed nodes only. Node `kg9q` (the third system node, no FortiAIGate affinity) had only ~20% memory requested (~10.6 GiB free), but the affinity rule excluded it.
+
+**Fix**: Patch the Triton deployment to add `kg9q` to the allowed nodes:
+```bash
+kubectl patch deployment triton-server -n fortiaigate --type=json -p='[
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/affinity/nodeAffinity/requiredDuringSchedulingIgnoredDuringExecution/nodeSelectorTerms/0/matchExpressions/0/values",
+    "value": [
+      "gke-aegis-cluster-system-pool-83c99e06-4wc6",
+      "gke-aegis-cluster-system-pool-83c99e06-7zkx",
+      "gke-aegis-cluster-system-pool-83c99e06-kg9q"
+    ]
+  }
+]'
+```
+**Note**: This patch is ephemeral — an ArgoCD sync will revert it. For a durable fix, override the Triton node affinity in `override-values.yaml` (check the Helm chart's `values.yaml` for the correct key name).
+
+---
+
+### Issue 9: FortiAIGate license "In Use" after pod restarts
+
+**Symptom**: After rolling restarts (triggered by ArgoCD sync or manual `kubectl rollout restart`), both `core` pods showed `0/1 Running` indefinitely. Logs showed:
+```
+Pod marked as NOT READY (license status: in use)
+```
+The `/api/licenses` endpoint showed `"status": "Invalid"` for both licenses.
+
+**Root cause**: The license-manager maintains a session with Fortinet's FDN (Fortinet Distribution Network) license server. The FDN session token is stored in Redis under `fdn_client:<node-name>`. When license-manager pods restart (especially after Redis was cleared), a new session UUID is generated. The FDN server still has the old session marked as active — it sees the new session as a *different instance* trying to activate the same license, and returns "In Use".
+
+**Important**: The license-manager has no periodic retry loop. It checks FDN **once at startup**, writes the result to Redis, and stays with that status until the next restart. Repeatedly restarting the license-manager does NOT help — each restart generates yet another new session UUID, keeping the FDN state perpetually "In Use".
+
+**Fix A (recommended): Wait for FDN session timeout**
+Do NOT restart the license-manager after hitting this state. The FDN server will eventually expire the previous session (typically a few hours). Monitor:
+```bash
+kubectl logs -n fortiaigate daemonset/license-manager --tail=5
+```
+When you see `License status changed to Active` (instead of `In Use`), the core pods will become `1/1` within a minute.
+
+**Fix B: Deactivate via FortiCare portal**
+If waiting is not acceptable, log into [https://support.fortinet.com](https://support.fortinet.com) → License Management → find `FAIGCNSD26000104` and `FAIGCNSD26000135` → Deactivate both. Then clear stale Redis state and restart:
+```bash
+REDIS_PASS=$(kubectl get secret -n fortiaigate fortiaigate-redis \
+  -o jsonpath='{.data.redis-password}' | base64 -d)
+
+kubectl exec -n fortiaigate fortiaigate-redis-master-0 -- \
+  redis-cli --tls --cacert /opt/bitnami/redis/certs/tls.crt -a "$REDIS_PASS" \
+  DEL "license:gke-aegis-cluster-system-pool-83c99e06-7zkx" \
+      "license:gke-aegis-cluster-system-pool-83c99e06-4wc6" \
+      "fdn_client:gke-aegis-cluster-system-pool-83c99e06-7zkx" \
+      "fdn_client:gke-aegis-cluster-system-pool-83c99e06-4wc6"
+
+kubectl rollout restart daemonset/license-manager -n fortiaigate
+```
+
+**Key lesson**: The `fdn_client:<node-name>` Redis key stores the FDN session token that proves ownership of the license. Never delete this key unless you have also deactivated the license on FortiCare. If it is deleted (e.g., by a full Redis flush), the license-manager will appear as a new instance to the FDN server and get "In Use" until the old session times out.
+
+---
+
+## Current State (2026-03-31)
+
+| Component | Status | Notes |
+|---|---|---|
+| FortiAIGate ingress | ✓ Running | IP: `34.58.94.237` (nginx ingress controller) |
+| FortiAIGate WebUI | ✓ Accessible | `https://34.58.94.237`, user: `admin`, pass: `Admin1234!` |
+| FortiAIGate AI Flow | ✓ Configured | Entry: `/v1/chat/completions`, provider → agent-svc:8080 |
+| FortiAIGate AI Guard | ✓ Configured | All scanners enabled (Prompt Injection, Toxicity, DLP, Anonymize) |
+| FortiAIGate Triton | ✓ Running | CPU-only (4Gi request, 8Gi limit), on node `kg9q` |
+| FortiAIGate scanners | ✓ Running | All scanner pods 1/1 |
+| FortiAIGate core | ✗ 0/1 | License "In Use" — FDN session timeout pending; do not restart license-manager |
+| FortiAIGate licenses | ⚠ Invalid | FAIGCNSD26000104 + FAIGCNSD26000135; FDN cooldown in progress |
+| Mistral-7B InferenceService | ✓ Ready | On-demand GPU nodes (not Spot) |
+| TinyLlama InferenceService | ✓ Ready | On-demand GPU nodes (not Spot) |
+| aegis-agent pod | ✓ Running | Added `/v1/chat/completions` OpenAI-compatible endpoint |
+| aegis-supervisor pod | ✓ Running | Session-based strike counter (limit=3) |
+| GPU node pool | ✓ On-demand | Recreated without `--spot` after Spot preemption |
+
+---
+
 ### What FortiAIGate Adds (Pending Onboarding)
 
 The tests above validate the **Supervisor + Cilium** layers. Once FortiAIGate licenses are obtained and AI Guard/Flow are configured:
@@ -932,3 +1224,256 @@ kubectl logs -f -n aegis-mesh deploy/aegis-supervisor | \
 # Adjust strike limit without rebuild
 kubectl set env deployment/aegis-supervisor -n aegis-mesh MALICIOUS_STRIKE_LIMIT=3
 ```
+
+---
+
+## Bringup Session — 2026-03-30
+
+Full cluster teardown-and-restore after cost-saving shutdown. Terraform Step 1 succeeded; the remaining steps required multiple fixes. All issues are now codified in `bringup.sh` and config files so they don't recur.
+
+---
+
+### Issue 1: Missing `kustomization.yaml` in argocd directory
+
+**Symptom**: `kubectl apply -k gitops/system/argocd/` failed with `unable to find one of 'kustomization.yaml', 'kustomization.yml'`.
+
+**Root cause**: The `gitops/system/argocd/` directory had `namespace.yaml` and `app-of-apps.yaml` but no `kustomization.yaml`. Without it, `kubectl apply -k` cannot discover resources.
+
+**Fix**: Created `gitops/system/argocd/kustomization.yaml`:
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - namespace.yaml
+  - https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+**Critical**: The `namespace: argocd` field is required. Without it, all ArgoCD Deployments land in the `default` namespace and the `kubectl rollout status deployment/argocd-server -n argocd` check in bringup.sh never finds them.
+
+---
+
+### Issue 2: ArgoCD CRD annotation too large + server-side apply conflicts
+
+**Symptom**:
+```
+The CustomResourceDefinition "applicationsets.argoproj.io" is invalid:
+metadata.annotations: Too long: must have at most 262144 bytes
+```
+Then after switching to `--server-side`:
+```
+Apply failed with 1 conflict: conflict with "kubectl-client-side-apply" manager
+```
+
+**Fix**: Use `--server-side --force-conflicts` for the initial apply:
+```bash
+kubectl apply -k gitops/system/argocd/ --server-side --force-conflicts
+```
+This is already in bringup.sh Step 2.
+
+---
+
+### Issue 3: KServe ArgoCD Application 403 on ghcr.io OCI registry
+
+**Symptom**: ArgoCD could not pull `oci://ghcr.io/kserve/charts` — returned 403 for anonymous access from inside GKE.
+
+**Root cause**: GitHub Container Registry requires authentication for OCI Helm chart pulls in non-interactive environments.
+
+**Fix**: KServe is installed directly from GitHub release manifests in bringup.sh (Step 3). The `gitops/system/kserve/application.yaml` has `syncPolicy: {}` (no automated sync) so ArgoCD tracks it for visibility only but never tries to apply it. `bringup.sh` also waits for cert-manager readiness before applying KServe manifests (required for webhook certs).
+
+---
+
+### Issue 4: kube-rbac-proxy image not found
+
+**Symptom**: `kserve-controller-manager` pod stuck in `ImagePullBackOff`.
+
+**Root cause**: `gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1` was deprecated and removed. The image moved to `quay.io/brancz/kube-rbac-proxy`.
+
+**Fix** (in bringup.sh Step 3):
+```bash
+kubectl patch deployment kserve-controller-manager -n kserve \
+  --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/1/image","value":"quay.io/brancz/kube-rbac-proxy:v0.13.1"}]'
+```
+
+---
+
+### Issue 5: Gateway API CRDs missing for waypoint proxy
+
+**Symptom**: `kubectl apply -f gitops/security/waypoint-proxy.yaml` failed — `Gateway` resource type unknown.
+
+**Root cause**: Istio Ambient waypoint proxy uses Kubernetes Gateway API (`gateway.networking.k8s.io/v1`), which is not installed by default on GKE.
+
+**Fix** (added to bringup.sh Step 6, before waypoint apply):
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+```
+
+---
+
+### Issue 6: Docker images built for wrong platform (arm64 vs amd64)
+
+**Symptom**: Agent and supervisor pods failed with `exec format error` — unable to run the binary.
+
+**Root cause**: Mac M-series (Apple Silicon) builds `linux/arm64` images by default. GKE nodes are `linux/amd64`.
+
+**Fix** (in bringup.sh Step 7): Explicit `--platform linux/amd64` on all `docker build` calls:
+```bash
+docker build --platform linux/amd64 src/agent/ -t ...
+docker build --platform linux/amd64 src/supervisor/ -t ...
+```
+
+---
+
+### Issue 7: `nfs-rwx` StorageClass not found — FortiAIGate PVCs stuck Pending
+
+**Symptom**: FortiAIGate pods all `Pending`; PVC events: `no persistent volumes available for this claim and no storage class is named "nfs-rwx"`.
+
+**Root cause**: GKE has no built-in RWX StorageClass. FortiAIGate's PostgreSQL and Redis require `ReadWriteMany`. The NFS provisioner installation was a manual step not captured in bringup.sh.
+
+**Fix** (added to bringup.sh Step 9, before FortiAIGate apply):
+```bash
+helm repo add nfs-ganesha \
+  https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/ 2>/dev/null || true
+helm upgrade --install nfs-server nfs-ganesha/nfs-server-provisioner \
+  --namespace nfs-provisioner --create-namespace \
+  --set storageClass.name=nfs-rwx \
+  --set persistence.enabled=true \
+  --set persistence.storageClass=standard-rwo \
+  --set persistence.size=50Gi
+kubectl rollout status statefulset/nfs-server-nfs-server-provisioner \
+  -n nfs-provisioner --timeout=120s
+```
+
+---
+
+### Issue 8: FortiAIGate pods Pending — stale node affinity (node hash changes every bringup)
+
+**Symptom**: All FortiAIGate pods `Pending`; describe showed node affinity required old node names (suffix `0d923f07-*`) but current cluster had suffix `83c99e06-*`.
+
+**Root cause**: GKE randomizes the node name hash suffix when a cluster is destroyed and recreated. The license node mapping in `chart/override-values.yaml` hardcodes full node names — these must be updated after every bringup.
+
+**Fix**: After `terraform apply`, run `kubectl get nodes` and update the license map in `gitops/security/fortiaigate/chart/override-values.yaml`:
+```yaml
+global:
+  licenses:
+    "gke-aegis-cluster-system-pool-83c99e06-4wc6": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-83c99e06-7zkx": "files/licenses/FAIGCNSD26000135.lic"
+```
+Then commit and push so ArgoCD picks up the change, and trigger a sync.
+
+**Note**: This is a recurring gotcha on every full teardown/bringup. The outer `gitops/security/fortiaigate/override-values.yaml` is NOT what ArgoCD reads — it reads from inside `chart/`. Always update `chart/override-values.yaml`.
+
+---
+
+### Issue 9: CPU saturation — FortiAIGate pods Pending on 2-node system pool
+
+**Symptom**: After node name fix, many FortiAIGate scanner pods still `Pending` with `Insufficient cpu`. Nodes at ~99% CPU allocation.
+
+**Root causes** (two separate sub-issues):
+
+**9a**: System pool only had 2 nodes (`e2-standard-4` = 4 vCPU each = 8 vCPU total). FortiAIGate's 9 scanner pods + ArgoCD + cert-manager + KServe controller exceeded available allocatable CPU.
+
+**Fix**: Increased system pool to 3 nodes in `terraform/modules/gke/main.tf`:
+```hcl
+# System node pool
+resource "google_container_node_pool" "system" {
+  node_count = 3   # Was 2 — 3 required for FortiAIGate scanners + ArgoCD/KServe
+```
+Applied with `terraform apply -target=module.gke.google_container_node_pool.system`.
+
+**9b**: FortiAIGate scanner/core resource requests were at production defaults (1 CPU each) from a prior commit that overwrote the demo-sized overrides. These were lost when the chart was re-committed without the `override-values.yaml` CPU downsizing.
+
+**Fix**: Restored reduced CPU requests in `chart/override-values.yaml`:
+```yaml
+core:
+  resources:
+    requests: { cpu: 100m, memory: 2Gi }
+scanners:
+  defaultResources:
+    requests: { cpu: 100m, memory: 1Gi }
+  sensitive:
+    resources:
+      requests: { cpu: 100m, memory: 2Gi }
+  anonymize:
+    resources:
+      requests: { cpu: 100m, memory: 2Gi }
+logd:
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+postgresql:
+  primary:
+    resources:
+      requests: { cpu: 100m, memory: 1Gi }
+redis:
+  master:
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+```
+
+**Lesson**: When re-committing the FortiAIGate chart, always verify `chart/override-values.yaml` still contains the CPU downsizing section. The chart's own `values.yaml` must not be overwritten.
+
+---
+
+### Issue 10: Redis StatefulSet stuck on old ControllerRevision
+
+**Symptom**: After committing the CPU override fix, the Redis pod continued to use the old (high) CPU request. ArgoCD showed Synced but the pod spec didn't change.
+
+**Root cause**: StatefulSet `RollingUpdate` only replaces pods when `updateRevision != currentRevision`. Since the existing Redis pod was not Ready (stuck pending due to CPU), the RollingUpdate controller treated it as an in-progress update and refused to replace it.
+
+**Fix**: Force the StatefulSet to pick up the new spec by scaling to 0 then back to 1:
+```bash
+kubectl scale statefulset fortiaigate-redis-master -n fortiaigate --replicas=0
+kubectl scale statefulset fortiaigate-redis-master -n fortiaigate --replicas=1
+```
+
+---
+
+### Issue 11: Duplicate ReplicaSets accumulation
+
+**Symptom**: Multiple ArgoCD manual syncs during troubleshooting created many ReplicaSets per Deployment (e.g., 4 ReplicaSets for `api`, each with `desired=1`). Node CPU spiked as multiple pod replicas competed.
+
+**Root cause**: Each ArgoCD sync during troubleshooting triggered a Deployment rollout. Since the new pods never became Ready (CPU pending), the old ReplicaSet was never scaled down. This is standard Deployment controller behavior, but multiple sync-triggered rollouts stacked up stale RSes.
+
+**Fix**: Identify all non-current ReplicaSets (those not matching the current Deployment pod template hash) and delete them:
+```bash
+# List all ReplicaSets with their owner Deployment and desired count
+kubectl get rs -n fortiaigate -o json | \
+  python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for rs in data['items']:
+    name = rs['metadata']['name']
+    owner = rs['metadata'].get('ownerReferences', [{}])[0].get('name', 'none')
+    desired = rs['spec'].get('replicas', 0)
+    ready = rs['status'].get('readyReplicas', 0)
+    print(f'{owner:40s} {name:60s} desired={desired} ready={ready}')
+"
+# Delete all but the newest RS per Deployment (keep the one with most recent creation timestamp)
+kubectl delete rs <stale-rs-names...> -n fortiaigate
+```
+
+**Prevention**: During troubleshooting, prefer `kubectl rollout restart` over repeated ArgoCD syncs. If you do trigger multiple syncs, clean up stale RSes before waiting for pods to settle.
+
+---
+
+### Summary: bringup.sh changes made in this session
+
+| Step | Change | Reason |
+|---|---|---|
+| Step 2 | Created `kustomization.yaml` with `namespace: argocd` | File was missing; namespace field prevents resources landing in `default` |
+| Step 2 | `--server-side --force-conflicts` | CRD annotations exceed 262KB limit for client-side apply |
+| Step 3 | Direct manifest install (not ArgoCD OCI Helm) | ghcr.io returns 403 for anonymous access from GKE |
+| Step 3 | Patch kube-rbac-proxy to `quay.io/brancz` | gcr.io/kubebuilder image deprecated and removed |
+| Step 3 | Wait for cert-manager before applying KServe | KServe webhook requires cert-manager to issue its certs |
+| Step 6 | Install Gateway API CRDs before waypoint | `Gateway` resource type not present on GKE by default |
+| Step 7 | `--platform linux/amd64` on docker build | Mac M-series builds arm64; GKE nodes are amd64 |
+| Step 9 | NFS provisioner install before FortiAIGate | GKE has no built-in RWX StorageClass; `nfs-rwx` must be created first |
+
+### Summary: config changes made in this session
+
+| File | Change |
+|---|---|
+| `terraform/modules/gke/main.tf` | `system-pool node_count: 2 → 3` |
+| `gitops/system/argocd/kustomization.yaml` | Created (new file) |
+| `gitops/system/kserve/application.yaml` | `syncPolicy: {}` (disable automated sync) |
+| `gitops/security/fortiaigate/chart/override-values.yaml` | Updated node names to `83c99e06-*`; restored scanner/core/logd/pg/redis CPU overrides |
