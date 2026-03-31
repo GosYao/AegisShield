@@ -24,7 +24,7 @@ fortiaigate:
     enabled: false            # Disabled — GPU nodes fully used by KServe models
 
 triton:
-  replicas: 0                 # Disabled — GPU unavailable; text scanners don't require Triton
+  replicas: 1                 # CPU-only — GPU nodes fully used by KServe; slower but functional for demo
 
 # ── Storage (API and Core services) ───────────────────────────────────────────
 storage:
