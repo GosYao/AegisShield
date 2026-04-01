@@ -64,31 +64,50 @@ AegisShield/
 
 | File | Placeholder | Replace With |
 |---|---|---|
-| `gitops/security/fortiaigate/values.yaml` | `YOUR_RWX_STORAGECLASS` | RWX StorageClass name (`kubectl get storageclass`) |
-| `gitops/security/fortiaigate/values.yaml` | `REPLACE_NODE1/2` | GKE worker node names (`kubectl get nodes`) |
-| `gitops/security/fortiaigate/values.yaml` | `REPLACE_BUILD_TAG` | Build tag from `docker load` output (e.g. `V8.0.0-build0004`) |
+| `gitops/security/fortiaigate/chart/override-values.yaml` | Node names in `global.licenses` | GKE worker node names (`kubectl get nodes`) — **changes on every full cluster recreate** |
+
+> **Note**: `storageClass` (`nfs-rwx`) and `image.tag` (`V8.0.0-build0023`) are already set in `chart/override-values.yaml`. The only value that must be updated on each bringup is the license node name mapping — GKE randomizes the node hash suffix when the cluster is destroyed and recreated.
 
 ## Deployment Order
 
-Steps must be executed in this order due to hard dependencies:
+Steps must be executed in this order due to hard dependencies.
+**Use `bringup.sh` to automate steps 1–10** (`HF_TOKEN=hf_xxx ./scripts/bringup.sh`).
 
 ```
 0.  gcloud storage buckets create gs://aegis-tfstate-gyao-bde-demo \
       --project=gyao-bde-demo --location=us-central1   # One-time: TF state bucket
 1.  terraform apply                          # VPC, GKE, IAM, fleet mesh feature
-2.  kubectl apply -k gitops/system/argocd/   # Bootstrap ArgoCD manually
-3.  ArgoCD auto-syncs cert-manager → KServe  # Wait for kserve-controller Ready
+    # After apply: kubectl get nodes → update license node names in
+    #   gitops/security/fortiaigate/chart/override-values.yaml, commit & push
+2.  kubectl apply -k gitops/system/argocd/ --server-side --force-conflicts
+    # Bootstrap ArgoCD; CRD annotations exceed 262KB — server-side apply required
+3.  Install KServe directly from GitHub release manifests (NOT via ArgoCD OCI Helm):
+      kubectl apply --server-side -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve.yaml
+      # Patch kube-rbac-proxy: gcr.io/kubebuilder deprecated → quay.io/brancz
+      kubectl patch deployment kserve-controller-manager -n kserve --type=json \
+        -p='[{"op":"replace","path":"/spec/template/spec/containers/1/image","value":"quay.io/brancz/kube-rbac-proxy:v0.13.1"}]'
+      kubectl apply --server-side -f https://github.com/kserve/kserve/releases/download/v0.13.0/kserve-cluster-resources.yaml
+    # ArgoCD kserve application.yaml is visibility-only (syncPolicy: {})
 4.  kubectl apply -f gitops/ai-workloads/namespace.yaml   # Ambient mode enrollment
 5.  kubectl create secret generic hf-secret \
       --from-literal=HF_TOKEN=<token> -n aegis-mesh
 6.  ArgoCD auto-syncs ai-workloads app → InferenceServices  # Model download: 10-20 min
-7.  kubectl apply -f gitops/security/cilium-policy-agent.yaml \
+7.  Install Gateway API CRDs (required for waypoint proxy):
+      kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+    kubectl apply -f gitops/security/cilium-policy-agent.yaml \
               -f gitops/security/cilium-policy-supervisor.yaml \
               -f gitops/security/waypoint-proxy.yaml
-8.  docker build & push agent + supervisor images
+8.  docker build --platform linux/amd64 & push agent + supervisor images
+    # --platform linux/amd64 required when building on Apple Silicon (M-series)
 9.  kubectl apply -f src/agent/k8s/
     kubectl apply -f src/supervisor/k8s/
-10. kubectl apply -f gitops/security/fortiaigate/application.yaml
+10. Install NFS provisioner (creates nfs-rwx StorageClass — required by FortiAIGate):
+      helm upgrade --install nfs-server nfs-ganesha/nfs-server-provisioner \
+        --namespace nfs-provisioner --create-namespace \
+        --set storageClass.name=nfs-rwx \
+        --set persistence.enabled=true --set persistence.storageClass=standard-rwo \
+        --set persistence.size=50Gi
+    kubectl apply -f gitops/security/fortiaigate/application.yaml
     # Wait for all pods in fortiaigate namespace (~5 min), then onboard via WebUI
 ```
 
@@ -115,12 +134,17 @@ terraform apply -var-file=terraform.tfvars
 ## Building and Pushing Images
 
 ```bash
+# --platform linux/amd64 is required when building on Apple Silicon (M-series Mac).
+# GKE nodes are x86-64; without this flag the pod fails with "exec format error".
+
 # Agent
-docker build src/agent/ -t us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-agent:latest
+docker build --platform linux/amd64 src/agent/ \
+  -t us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-agent:latest
 docker push us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-agent:latest
 
 # Supervisor
-docker build src/supervisor/ -t us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-supervisor:latest
+docker build --platform linux/amd64 src/supervisor/ \
+  -t us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-supervisor:latest
 docker push us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-supervisor:latest
 ```
 
@@ -144,17 +168,23 @@ Download the Helm chart TAR and image archives from Fortinet Infosite:
 https://info.fortinet.com/builds/?project_id=807
 ```
 
-Extract the Helm chart, merge in the custom values, copy licenses, and commit to Git so ArgoCD can sync it:
+Extract the Helm chart, copy licenses, and commit to Git so ArgoCD can sync it:
 ```bash
 tar xf fortiaigate-chart-V8.0.0-*.tar
 # Note: the extracted directory name may vary (e.g. fortiaigate/ or fortiaigate-8.0.0/)
 cp -r fortiaigate/ gitops/security/fortiaigate/chart/
-# Copy our values override into the chart root — ArgoCD picks up values.yaml automatically
-cp gitops/security/fortiaigate/values.yaml gitops/security/fortiaigate/chart/values.yaml
+
+# IMPORTANT: Do NOT overwrite chart/values.yaml — it contains the upstream chart defaults.
+# Our customisations live in chart/override-values.yaml (already committed).
+# The ArgoCD Application references override-values.yaml via helm.valueFiles.
+
 # Copy license files into the chart so ArgoCD can deploy them
 mkdir -p gitops/security/fortiaigate/chart/files/licenses/
 cp gitops/security/fortiaigate/files/licenses/*.lic \
    gitops/security/fortiaigate/chart/files/licenses/
+
+# Update node names in chart/override-values.yaml BEFORE committing:
+#   kubectl get nodes  →  replace global.licenses node names
 git add gitops/security/fortiaigate/chart/
 git commit -m "Add FortiAIGate 8.0.0 Helm chart"
 git push
@@ -181,45 +211,41 @@ docker push us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/<name>:<tag>
 
 > **triton-models and custom-triton**: keep their original image tags when pushing. The Helm chart references them by exact tag.
 
-After loading, note the build tag (e.g. `V8.0.0-build0004`) and set it as `fortiaigate.image.tag` in `values.yaml`.
+After loading, note the build tag (e.g. `V8.0.0-build0023`) and set `fortiaigate.image.tag` in `chart/override-values.yaml`.
 
 ### 4. Licensing
 
-Place one `.lic` file (from FortiCare) per GKE worker node into:
-```
-gitops/security/fortiaigate/files/licenses/
-```
-The current license file is `FAIGCNSD26000104.lic` (already placed). The §2 chart commit step copies these into `chart/files/licenses/` automatically.
+Current licenses (already committed):
+- `FAIGCNSD26000104.lic` and `FAIGCNSD26000135.lic` in `gitops/security/fortiaigate/chart/files/licenses/`
 
-Map node names to license files in `gitops/security/fortiaigate/values.yaml`:
+**After every full cluster recreate**, run `kubectl get nodes` and update the license node name mapping in `gitops/security/fortiaigate/chart/override-values.yaml` (GKE randomizes the hash suffix on each cluster creation):
+
 ```yaml
 global:
   licenses:
-    "gke-aegis-cluster-system-pool-xxxx": "files/licenses/FAIGCNSD26000104.lic"
-    "gke-aegis-cluster-system-pool-yyyy": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-<new-hash>-<id1>": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-<new-hash>-<id2>": "files/licenses/FAIGCNSD26000135.lic"
 ```
 
-Run `kubectl get nodes` after `terraform apply` to get actual node names, then replace `REPLACE_NODE1/2` in `values.yaml`.
+### 5. Helm `chart/override-values.yaml` (`gitops/security/fortiaigate/chart/override-values.yaml`)
 
-### 5. Helm values.yaml (`gitops/security/fortiaigate/values.yaml`)
-
-Key values to set (see the file for the full template):
+Key values already set (see the file for full contents):
 
 ```yaml
 fortiaigate:
   image:
     repository: us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo
-    tag: REPLACE_BUILD_TAG     # from docker load output
+    tag: V8.0.0-build0023
   gpu:
-    enabled: true
+    enabled: false            # GPU nodes fully used by KServe models
 
 storage:
-  storageClass: YOUR_RWX_STORAGECLASS
+  storageClass: nfs-rwx       # Provisioned by nfs-ganesha-server-and-external-provisioner
   size: 8Gi
 
 ingress:
-  className: nginx             # from: kubectl get ingressclass
-  host: ""                     # empty — access via Ingress controller external IP
+  className: nginx
+  host: ""                    # Access via Ingress controller external IP
 
 tls:
   enabled: true
@@ -227,9 +253,11 @@ tls:
   key: files/certificate/dflt.key
 ```
 
+CPU requests are intentionally reduced from production defaults (1 CPU → 100m per scanner) to fit on `e2-standard-4` demo nodes. Do not revert these without also scaling the system pool.
+
 ### 6. Deployment via ArgoCD
 
-Once the chart is committed to Git and values.yaml is filled in, apply the ArgoCD Application:
+Once the chart is committed to Git with updated node names, apply the ArgoCD Application:
 
 ```bash
 kubectl apply -f gitops/security/fortiaigate/application.yaml
@@ -294,6 +322,7 @@ User → FortiAIGate Ingress (/chat)
 
 ## GPU & Spot VM Note
 
-- **GPU Resources**: Mistral-7B (~14 GB VRAM) and phi-3-mini (~8 GB VRAM) together consume ~22 GB. The NVIDIA L4 has 24 GB VRAM. The `gpu-pool` is configured with `node_count = 2` so each model runs on a dedicated node. Do not reduce to 1 GPU node or models will OOM-fail to load simultaneously.
+- **GPU Resources**: Mistral-7B (~14 GB VRAM) and TinyLlama-1.1B (~2 GB VRAM) together consume ~16 GB. The NVIDIA L4 has 24 GB VRAM. The `gpu-pool` is configured with `node_count = 2` so each model runs on a dedicated node. Do not reduce to 1 GPU node or models will compete for VRAM. The supervisor's InferenceService is named `phi-3-mini` (DNS: `phi-3-mini-predictor.aegis-mesh.svc.cluster.local`) but actually runs TinyLlama-1.1B-Chat.
+- **System pool**: `node_count = 3` (`e2-standard-4`). 2 nodes is insufficient — CPU saturates with FortiAIGate scanners running alongside ArgoCD/cert-manager/KServe controller.
 - **Spot VMs**: All node pools (`system` and `gpu`) use **GCP Spot VMs** to minimize infrastructure costs (up to 60-91% savings). Be aware that nodes can be preempted by GCP at any time with a 30-second notice, which may cause temporary service interruptions. For production stability, consider switching to standard VMs in `terraform/modules/gke/main.tf`.
-- **GPU Spot preemption risk**: `g2-standard-4` Spot VMs with NVIDIA L4 GPUs face **higher preemption rates** than CPU Spot VMs due to elevated GPU demand. If a GPU node is preempted, KServe must reschedule and reload the model from HuggingFace — Mistral-7B (~14 GB) and phi-3-mini (~8 GB) can each take 10–20 minutes to recover. During this window the agent or supervisor will be unavailable. For demos, schedule around this risk by verifying both InferenceServices are `Ready` before presenting.
+- **GPU Spot preemption risk**: `g2-standard-4` Spot VMs with NVIDIA L4 GPUs face **higher preemption rates** than CPU Spot VMs due to elevated GPU demand. If a GPU node is preempted, KServe must reschedule and reload the model from HuggingFace — Mistral-7B (~14 GB) can take 10–20 minutes to recover. During this window the agent will be unavailable. For demos, verify both InferenceServices are `Ready` before presenting.

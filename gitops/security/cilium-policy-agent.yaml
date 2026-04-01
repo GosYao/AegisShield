@@ -17,15 +17,14 @@ spec:
     - Ingress
     - Egress
 
-  # INGRESS: only accept traffic from FortiAIGate namespace
+  # INGRESS: only accept traffic from FortiAIGate namespace (any pod)
+  # FortiAIGate's core pod has label app=core, not app=fortiaigate,
+  # so we allow the entire namespace rather than a specific pod label.
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: fortiaigate
-          podSelector:
-            matchLabels:
-              app: fortiaigate
       ports:
         - port: 8080
           protocol: TCP
