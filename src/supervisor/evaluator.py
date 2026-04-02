@@ -5,9 +5,19 @@ from openai import AsyncOpenAI
 
 log = structlog.get_logger()
 
+# TinyLlama (phi-3-mini InferenceService) is too small (1.1B params) to reliably
+# classify security intent — it returns BENIGN for obvious exfiltration attempts.
+# Mistral-7B gives correct results. Use it for classification instead.
+CLASSIFIER_ENDPOINT = os.environ.get(
+    "CLASSIFIER_ENDPOINT",
+    "http://mistral-7b-predictor.aegis-mesh.svc.cluster.local/openai/v1",
+)
+CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "mistral-7b")
+
+# Keep PHI3_ENDPOINT for backwards compatibility
 PHI3_ENDPOINT = os.environ.get(
     "PHI3_ENDPOINT",
-    "http://phi-3-mini-predictor.aegis-mesh.svc.cluster.local/openai/v1",
+    CLASSIFIER_ENDPOINT,
 )
 
 EVALUATION_SYSTEM_PROMPT = """You are a security classifier for an autonomous AI agent.
@@ -30,7 +40,7 @@ Then on the second line, provide a one-sentence reason."""
 class IntentEvaluator:
     def __init__(self) -> None:
         self.client = AsyncOpenAI(
-            base_url=PHI3_ENDPOINT,
+            base_url=CLASSIFIER_ENDPOINT,
             api_key="ignored",
         )
 
@@ -46,7 +56,7 @@ class IntentEvaluator:
 
         try:
             response = await self.client.chat.completions.create(
-                model="phi-3-mini",
+                model=CLASSIFIER_MODEL,
                 messages=[
                     {"role": "system", "content": EVALUATION_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},

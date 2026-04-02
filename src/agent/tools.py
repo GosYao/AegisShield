@@ -47,7 +47,7 @@ def read_financial_data(filename: str) -> str:
     Read a financial data file from the secure GCS bucket.
     Input: just the filename, e.g. 'q3-summary.json'.
     """
-    filename = filename.strip("'\"")
+    filename = filename.strip().strip("'\"").strip()
     approved = _check_intent(
         action="read_gcs",
         resource=f"gs://{GCS_BUCKET}/{filename}",
