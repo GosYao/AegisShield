@@ -14,6 +14,13 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: aegis-mesh
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: hf-secret
+      jsonPointers:
+        - /data
+        - /stringData
   syncPolicy:
     automated:
       prune: true
@@ -21,3 +28,4 @@ spec:
     syncOptions:
       - CreateNamespace=false   # Namespace created in step 4 before ArgoCD syncs this
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
