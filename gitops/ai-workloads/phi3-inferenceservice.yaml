@@ -12,7 +12,7 @@ spec:
       modelFormat:
         name: huggingface
       args:
-        - "--model_id=ibm-granite/granite-guardian-3.1-8b"
+        - "--model_id=meta-llama/Llama-Guard-3-8B"
         - "--backend=vllm"
         - "--max-model-len=4096"
         - "--dtype=float16"

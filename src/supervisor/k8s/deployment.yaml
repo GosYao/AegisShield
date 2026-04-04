@@ -25,7 +25,7 @@ spec:
             - name: CLASSIFIER_ENDPOINT
               value: "http://phi-3-mini-predictor.aegis-mesh.svc.cluster.local/openai/v1"
             - name: CLASSIFIER_MODEL
-              value: "granite-guardian-3.1-8b"
+              value: "llama-guard-3-8b"
             - name: AGENT_NAMESPACE
               value: "aegis-mesh"
             - name: AGENT_LABEL_SELECTOR
