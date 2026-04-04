@@ -16,7 +16,7 @@ log = structlog.get_logger()
 # respectively, which the KServe v0.13.0 image does not ship.
 CLASSIFIER_ENDPOINT = os.environ.get(
     "CLASSIFIER_ENDPOINT",
-    "http://phi-3-mini-predictor.aegis-mesh.svc.cluster.local/openai/v1",
+    "http://classifier-predictor.aegis-mesh.svc.cluster.local/openai/v1",
 )
 CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "qwen2.5-7b-instruct")
 

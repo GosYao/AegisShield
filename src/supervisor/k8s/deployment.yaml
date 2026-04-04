@@ -23,7 +23,7 @@ spec:
             - containerPort: 8081
           env:
             - name: CLASSIFIER_ENDPOINT
-              value: "http://phi-3-mini-predictor.aegis-mesh.svc.cluster.local/openai/v1"
+              value: "http://classifier-predictor.aegis-mesh.svc.cluster.local/openai/v1"
             - name: CLASSIFIER_MODEL
               value: "qwen2.5-7b-instruct"
             - name: AGENT_NAMESPACE

@@ -1,9 +1,10 @@
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
-  name: phi-3-mini
+  name: classifier
   namespace: aegis-mesh
   annotations:
+    # No sidecar — ztunnel handles mTLS in ambient mode
     sidecar.istio.io/inject: "false"
     serving.kserve.io/deploymentMode: RawDeployment
 spec:

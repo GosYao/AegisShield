@@ -56,7 +56,7 @@ AegisShield/
 | Agent GCP SA | `aegis-agent-sa@gyao-bde-demo.iam.gserviceaccount.com` |
 | GCS bucket | `aegis-financial-data` |
 | Mistral KServe DNS | `mistral-7b-predictor.aegis-mesh.svc.cluster.local` |
-| phi-3-mini KServe DNS | `phi-3-mini-predictor.aegis-mesh.svc.cluster.local` |
+| Classifier KServe DNS | `classifier-predictor.aegis-mesh.svc.cluster.local` |
 | Agent service | `agent-svc.aegis-mesh.svc.cluster.local:8080` |
 | Supervisor service | `supervisor-svc.aegis-mesh.svc.cluster.local:8081` |
 
