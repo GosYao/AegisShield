@@ -53,7 +53,9 @@ module "iam" {
   agent_k8s_namespace = var.agent_k8s_namespace
   agent_ksa_name      = var.agent_ksa_name
 
-  depends_on = [module.gke]
+  # Intentionally no depends_on = [module.gke] — IAM SAs and GCS bucket are
+  # independent of the cluster. Removing this prevents Terraform from
+  # destroying module.iam when module.gke is targeted for destruction.
 }
 
 # Enable Cloud Service Mesh via GKE Hub

@@ -18,7 +18,7 @@ CLASSIFIER_ENDPOINT = os.environ.get(
     "CLASSIFIER_ENDPOINT",
     "http://classifier-predictor.aegis-mesh.svc.cluster.local/openai/v1",
 )
-CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "qwen2.5-7b-instruct")
+CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "classifier")
 
 EVALUATION_SYSTEM_PROMPT = """You are a security classifier for an autonomous AI agent operating in a financial data environment.
 You will receive a description of an action the agent intends to take.
@@ -75,16 +75,25 @@ class IntentEvaluator:
             verdict = "UNKNOWN"
             reason = "No reason provided"
 
+            # Fail-closed: scan all lines; MALICIOUS anywhere overrides BENIGN.
+            # The model sometimes outputs role names or preamble before the
+            # verdict word, so we must not stop at the first match — a later
+            # MALICIOUS must win over an earlier BENIGN.
+            benign_idx = None
+            malicious_idx = None
             for i, line in enumerate(lines):
                 words = re.findall(r"[A-Z]+", line.upper())
-                if "BENIGN" in words:
-                    verdict = "BENIGN"
-                    reason = " ".join(lines[i + 1:]).strip() or line.strip()
-                    break
-                if "MALICIOUS" in words:
-                    verdict = "MALICIOUS"
-                    reason = " ".join(lines[i + 1:]).strip() or line.strip()
-                    break
+                if "MALICIOUS" in words and malicious_idx is None:
+                    malicious_idx = i
+                if "BENIGN" in words and benign_idx is None:
+                    benign_idx = i
+
+            if malicious_idx is not None:
+                verdict = "MALICIOUS"
+                reason = " ".join(lines[malicious_idx + 1:]).strip() or lines[malicious_idx].strip()
+            elif benign_idx is not None:
+                verdict = "BENIGN"
+                reason = " ".join(lines[benign_idx + 1:]).strip() or lines[benign_idx].strip()
 
             if verdict not in ("BENIGN", "MALICIOUS"):
                 log.warning("unexpected_verdict", raw=raw, defaulting_to="MALICIOUS")

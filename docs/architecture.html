@@ -512,7 +512,7 @@
     <rect x="692" y="38" width="140" height="88" rx="8" fill="#100720" stroke="#7e22ce" stroke-width="1.5"/>
     <text x="762" y="60"  text-anchor="middle" font-size="18">🔍</text>
     <text x="762" y="80"  text-anchor="middle" font-size="11" fill="#f1f5f9" font-weight="700">Supervisor Pod</text>
-    <text x="762" y="94"  text-anchor="middle" font-size="9"  fill="#64748b">TinyLlama classifier</text>
+    <text x="762" y="94"  text-anchor="middle" font-size="9"  fill="#64748b">Qwen2.5-7B classifier</text>
     <text x="762" y="107" text-anchor="middle" font-size="9"  fill="#64748b">POST /evaluate</text>
     <text x="762" y="119" text-anchor="middle" font-size="9"  fill="#a78bfa">fail-closed · port 8081</text>
 
@@ -550,8 +550,8 @@
 
     <!-- TinyLlama (GPU) -->
     <rect x="576" y="392" width="130" height="44" rx="7" fill="#071209" stroke="#166534" stroke-width="1"/>
-    <text x="641" y="411" text-anchor="middle" font-size="10" fill="#f1f5f9" font-weight="700">🧠 TinyLlama-1.1B</text>
-    <text x="641" y="424" text-anchor="middle" font-size="8"  fill="#64748b">phi-3-mini-predictor · GPU</text>
+    <text x="641" y="411" text-anchor="middle" font-size="10" fill="#f1f5f9" font-weight="700">🧠 Qwen2.5-7B-Instruct</text>
+    <text x="641" y="424" text-anchor="middle" font-size="8"  fill="#64748b">classifier-predictor · GPU</text>
 
     <!-- 403 blocked label -->
     <rect x="208" y="148" width="144" height="34" rx="6" fill="#2d0a0a" stroke="#991b1b" stroke-width="1"/>
@@ -704,8 +704,8 @@
       <div class="card card-user" style="max-width:220px; flex:none;">
         <div class="card-title">👤 User / Client</div>
         <div class="card-sub">
-          <b>POST /chat</b><br>
-          <code style="font-size:0.65rem; color:#4b5563;">{ "message": "Summarize Q3..." }</code>
+          <b>POST /v1/chat/completions</b><br>
+          <code style="font-size:0.65rem; color:#4b5563;">{ "model": "aegis-agent", "messages": [...] }</code>
         </div>
       </div>
       <div style="flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; padding:8px 0;">
@@ -726,7 +726,7 @@
         <div class="card-title">🛡️ FortiAIGate 8.0.0</div>
         <div class="card-sub">
           Namespace: <b>fortiaigate</b><br>
-          Ingress IP: <b>35.202.64.42</b> (nginx)<br>
+          Ingress IP: <b>34.58.94.237</b> (nginx)<br>
           AI Flow → AI Guard pipeline<br>
           Input + Output guard scanners
         </div>
@@ -742,7 +742,7 @@
   <!-- connector -->
   <div class="connector">
     <div class="conn-line"></div>
-    <div class="conn-label green">② Allowed → forwards to Agent /chat</div>
+    <div class="conn-label green">② Allowed → forwards to Agent /v1/chat/completions</div>
     <div class="conn-line"></div>
   </div>
 
@@ -802,8 +802,8 @@
           <div class="card-title">🔍 Supervisor Pod</div>
           <div class="card-sub">
             FastAPI <b>/evaluate</b> endpoint<br>
-            <b>TinyLlama</b> intent classifier<br>
-            (InferenceService: phi-3-mini)<br>
+            <b>Qwen2.5-7B-Instruct</b> intent classifier<br>
+            (InferenceService: classifier)<br>
             temperature=0.0 · deterministic<br>
             <b>Fail-closed</b>: unreachable → MALICIOUS<br>
             KSA: <b>supervisor-ksa</b>
@@ -884,15 +884,15 @@
       </div>
 
       <div class="card card-tinyllama">
-        <div class="card-title">🧠 TinyLlama-1.1B-Chat-v1.0</div>
+        <div class="card-title">🧠 Qwen2.5-7B-Instruct</div>
         <div class="card-sub">
-          InferenceService: <b>phi-3-mini</b><br>
-          Backend: <b>vLLM 0.4.2</b><br>
-          DNS: <code style="font-size:0.62rem;">phi-3-mini-predictor<br>.aegis-mesh.svc.cluster.local</code><br>
+          InferenceService: <b>classifier</b><br>
+          Backend: <b>vLLM</b><br>
+          DNS: <code style="font-size:0.62rem;">classifier-predictor<br>.aegis-mesh.svc.cluster.local</code><br>
           temperature=0.0 · deterministic
         </div>
         <div class="card-tags">
-          <span class="badge badge-green">~3 GB VRAM</span>
+          <span class="badge badge-green">~14 GB VRAM</span>
           <span class="badge badge-green">Supervisor classifier</span>
         </div>
       </div>
@@ -913,8 +913,8 @@
             <div class="pool-title">gpu-pool</div>
             <div class="pool-spec">g2-standard-4 × <b>2 nodes</b><br>NVIDIA L4 · 24 GB VRAM</div>
             <div class="pool-pod gpu">Mistral-7B (node 1)</div>
-            <div class="pool-pod gpu">TinyLlama (node 2)</div>
-            <div class="pool-note ondemand">✓ On-demand (preemption risk mitigated)</div>
+            <div class="pool-pod gpu">Qwen2.5-7B (node 2)</div>
+            <div class="pool-note spot">⚡ Spot VM</div>
           </div>
         </div>
         <div class="card card-argocd" style="padding:10px 12px;">
@@ -1036,9 +1036,9 @@
       <div class="val-title">✓ Hubble network map</div>
       <div class="val-desc">Relay connected to all 7 nodes · service map live at localhost:12000</div>
     </div>
-    <div class="val-item val-pend">
-      <div class="val-title">⏳ FortiAIGate AI Guard</div>
-      <div class="val-desc">Pending 4 additional licenses from FortiCare (1 of 5 active)</div>
+    <div class="val-item val-ok">
+      <div class="val-title">✓ FortiAIGate AI Guard</div>
+      <div class="val-desc">AI Flow + AI Guard configured · prompt injection, DLP, toxicity all blocking</div>
     </div>
   </div>
 
@@ -1050,8 +1050,8 @@
       <div class="flow-step">
         <div class="step-num n">1</div>
         <div class="step-body">
-          <strong>User → FortiAIGate Ingress (35.202.64.42 / nginx)</strong>
-          <div class="note">HTTPS POST /chat · { "message": "..." }</div>
+          <strong>User → FortiAIGate Ingress (34.58.94.237 / nginx)</strong>
+          <div class="note">HTTPS POST /v1/chat/completions · { "model": "aegis-agent", "messages": [...] }</div>
         </div>
       </div>
 
@@ -1066,7 +1066,7 @@
       <div class="flow-step">
         <div class="step-num ok">2</div>
         <div class="step-body">
-          <strong>FortiAIGate ALLOWED → forwards to Agent pod /chat (aegis-mesh)</strong>
+          <strong>FortiAIGate ALLOWED → forwards to Agent pod /v1/chat/completions (aegis-mesh)</strong>
           <div class="note">ztunnel provides mTLS on the internal hop. No sidecar injected.</div>
         </div>
       </div>
@@ -1083,7 +1083,7 @@
         <div class="step-num x">✕</div>
         <div class="step-body step-x">
           <strong>Supervisor verdict: MALICIOUS → strike recorded</strong>
-          <div class="note" style="color:#7f1d1d;">TinyLlama classified intent as exfiltration / injection. Strike counter increments (keyed by session_id, fallback: client IP). Strikes 1–2: action blocked, user receives clean error, pod survives. Strike 3: enforcer calls kubectl delete pod (RBAC: aegis-mesh pods only) — Deployment restarts a clean pod in ~30s. BENIGN verdict resets counter to 0.</div>
+          <div class="note" style="color:#7f1d1d;">Qwen2.5-7B-Instruct classified intent as exfiltration / injection. Strike counter increments (keyed by session_id, fallback: client IP). Strikes 1–2: action blocked, user receives clean error, pod survives. Strike 3: enforcer calls kubectl delete pod (RBAC: aegis-mesh pods only) — Deployment restarts a clean pod in ~30s. BENIGN verdict resets counter to 0.</div>
         </div>
       </div>
 
@@ -1110,7 +1110,7 @@
   <div class="legend">
     <div class="legend-item"><div class="legend-dot" style="background:#b91c1c"></div>FortiAIGate WAF/DLP (L7)</div>
     <div class="legend-item"><div class="legend-dot" style="background:#1d4ed8"></div>Agent pod (LangChain + Mistral-7B)</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#7e22ce"></div>Supervisor pod (TinyLlama classifier)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#7e22ce"></div>Supervisor pod (Qwen2.5-7B classifier)</div>
     <div class="legend-item"><div class="legend-dot" style="background:#0e7490"></div>Cilium L4 NetworkPolicy</div>
     <div class="legend-item"><div class="legend-dot" style="background:#1e40af"></div>ztunnel mTLS (Ambient mode)</div>
     <div class="legend-item"><div class="legend-dot" style="background:#15803d"></div>KServe InferenceService (GPU)</div>
