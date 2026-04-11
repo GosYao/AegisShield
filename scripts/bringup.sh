@@ -97,7 +97,7 @@ kubectl create secret generic hf-secret \
 
 log "Applying InferenceServices (model download begins — 15–20 min)..."
 kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/mistral-inferenceservice.yaml"
-kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/phi3-inferenceservice.yaml"
+kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/classifier-inferenceservice.yaml"
 
 log "Waiting for Mistral-7B to become Ready..."
 until kubectl get inferenceservice mistral-7b -n aegis-mesh \
@@ -108,14 +108,14 @@ until kubectl get inferenceservice mistral-7b -n aegis-mesh \
 done
 log "Mistral-7B ready."
 
-log "Waiting for phi-3-mini to become Ready..."
-until kubectl get inferenceservice phi-3-mini -n aegis-mesh \
+log "Waiting for classifier (Qwen2.5-7B-Instruct) to become Ready..."
+until kubectl get inferenceservice classifier -n aegis-mesh \
         -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null \
         | grep -q "True"; do
-  warn "  phi-3-mini not ready, retrying in 60s..."
+  warn "  classifier not ready, retrying in 60s..."
   sleep 60
 done
-log "phi-3-mini ready."
+log "classifier ready."
 
 # ── Step 6: Security policies ────────────────────────────────────────────────
 section "Step 6 — Cilium policies + waypoint proxy"
@@ -201,7 +201,7 @@ echo "       Input:  Prompt Injection + DLP + Toxicity  (action: Block)"
 echo "       Output: DLP + Toxicity                     (action: Block)"
 echo ""
 echo "  C) AI Flow → New Flow:"
-echo "       Path: /chat   Schema: { \"message\": \"string\" }"
+echo "       Path: /v1/chat/completions"
 echo "       Route to Guard from step B → Deploy"
 echo ""
 echo "Verify: kubectl get isvc -n aegis-mesh && kubectl get pods -n aegis-mesh"
