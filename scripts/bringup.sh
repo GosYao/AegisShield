@@ -191,8 +191,24 @@ retry kubectl apply -f "${REPO_ROOT}/src/supervisor/k8s/"
 retry kubectl rollout status deployment/aegis-agent     -n aegis-mesh --timeout=120s
 retry kubectl rollout status deployment/aegis-supervisor -n aegis-mesh --timeout=120s
 
-# ── Step 9: NFS provisioner + FortiAIGate ────────────────────────────────────
-section "Step 9 — NFS provisioner + FortiAIGate"
+# ── Step 9: Ingress controller + NFS provisioner + FortiAIGate ───────────────
+section "Step 9 — Ingress controller + NFS provisioner + FortiAIGate"
+
+# GKE has no built-in nginx Ingress controller; FortiAIGate's Ingress is
+# className: nginx, so without this it has no external IP.
+log "Installing ingress-nginx (LoadBalancer + default IngressClass)..."
+helm repo add ingress-nginx \
+  https://kubernetes.github.io/ingress-nginx 2>/dev/null || true
+helm repo update ingress-nginx >/dev/null
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace \
+  --set controller.service.type=LoadBalancer \
+  --set controller.ingressClassResource.default=true
+
+log "Waiting for ingress-nginx controller to be ready..."
+retry kubectl rollout status deployment/ingress-nginx-controller \
+  -n ingress-nginx --timeout=180s
+
 # GKE has no built-in RWX StorageClass; FortiAIGate needs one for its shared PVC.
 log "Installing NFS provisioner (creates nfs-rwx StorageClass)..."
 helm repo add nfs-ganesha \
@@ -230,9 +246,9 @@ echo ""
 echo -e "${GREEN}All automated steps finished.${NC}"
 echo ""
 echo "Manual step remaining — FortiAIGate WebUI onboarding:"
-FORTIGATE_IP=$(kubectl get svc -n fortiaigate \
-  -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].status.loadBalancer.ingress[0].ip}' \
-  2>/dev/null || echo "<check: kubectl get svc -n fortiaigate>")
+FORTIGATE_IP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null \
+  || echo "<check: kubectl get svc -n ingress-nginx>")
 echo "  WebUI: https://${FORTIGATE_IP}"
 echo ""
 echo "  A) Settings → AI Providers → Add:"
