@@ -18,6 +18,43 @@ section() { echo -e "\n${CYAN}════════════════�
             echo -e "${CYAN} $*${NC}"; \
             echo -e "${CYAN}════════════════════════════════════════${NC}"; }
 
+# Retry a command with exponential backoff. Used to absorb transient TCP
+# resets / "connection reset by peer" errors against the GKE API server,
+# which otherwise abort the script under `set -e`.
+retry() {
+  local max_attempts="${RETRY_MAX:-6}"
+  local delay="${RETRY_DELAY:-5}"
+  local attempt=1
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+    local rc=$?
+    if (( attempt >= max_attempts )); then
+      die "Command failed after ${max_attempts} attempts (rc=${rc}): $*"
+    fi
+    warn "  Attempt ${attempt}/${max_attempts} failed (rc=${rc}); waiting for API and retrying in ${delay}s..."
+    wait_for_api 60 || true
+    sleep "${delay}"
+    delay=$(( delay * 2 ))
+    attempt=$(( attempt + 1 ))
+  done
+}
+
+# Block until the Kubernetes API responds, or fail after $1 seconds.
+wait_for_api() {
+  local timeout="${1:-120}"
+  local elapsed=0
+  until kubectl version --request-timeout=5s &>/dev/null; do
+    if (( elapsed >= timeout )); then
+      return 1
+    fi
+    sleep 3
+    elapsed=$(( elapsed + 3 ))
+  done
+  return 0
+}
+
 # ── Preflight ────────────────────────────────────────────────────────────────
 command -v kubectl &>/dev/null    || die "kubectl not found"
 command -v terraform &>/dev/null  || die "terraform not found"
@@ -42,18 +79,21 @@ terraform apply -var-file=terraform.tfvars -auto-approve
 cd "${REPO_ROOT}"
 
 log "Fetching GKE credentials..."
-gcloud container clusters get-credentials aegis-cluster \
+retry gcloud container clusters get-credentials aegis-cluster \
   --zone us-central1-a --project gyao-bde-demo
+
+log "Waiting for Kubernetes API to be reachable..."
+wait_for_api 180 || die "Kubernetes API not reachable after 3 minutes"
 
 # ── Step 2: ArgoCD bootstrap ─────────────────────────────────────────────────
 section "Step 2 — Bootstrap ArgoCD"
-kubectl apply -k "${REPO_ROOT}/gitops/system/argocd/" --server-side --force-conflicts
+retry kubectl apply -k "${REPO_ROOT}/gitops/system/argocd/" --server-side --force-conflicts
 
 log "Waiting for ArgoCD server to be ready..."
-kubectl rollout status deployment/argocd-server -n argocd --timeout=180s
+retry kubectl rollout status deployment/argocd-server -n argocd --timeout=180s
 
 log "Applying app-of-apps..."
-kubectl apply -f "${REPO_ROOT}/gitops/system/argocd/app-of-apps.yaml"
+retry kubectl apply -f "${REPO_ROOT}/gitops/system/argocd/app-of-apps.yaml"
 
 # ── Step 3: Install KServe ───────────────────────────────────────────────────
 section "Step 3 — Install KServe (direct manifests)"
@@ -62,42 +102,45 @@ section "Step 3 — Install KServe (direct manifests)"
 KSERVE_VERSION="v0.13.0"
 
 log "Waiting for cert-manager (required for KServe webhook certs)..."
-kubectl rollout status deployment/cert-manager         -n cert-manager --timeout=300s
-kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
+retry kubectl rollout status deployment/cert-manager         -n cert-manager --timeout=300s
+retry kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
 
 log "Applying KServe manifests..."
-kubectl apply --server-side \
+retry kubectl apply --server-side \
   -f "https://github.com/kserve/kserve/releases/download/${KSERVE_VERSION}/kserve.yaml"
 
 # gcr.io/kubebuilder/kube-rbac-proxy was deprecated; current location is quay.io/brancz.
 log "Patching kube-rbac-proxy image..."
-kubectl patch deployment kserve-controller-manager -n kserve \
+retry kubectl patch deployment kserve-controller-manager -n kserve \
   --type=json \
   -p='[{"op":"replace","path":"/spec/template/spec/containers/1/image","value":"quay.io/brancz/kube-rbac-proxy:v0.13.1"}]'
 
 log "Waiting for kserve-controller-manager to be ready..."
-kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=180s
+retry kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=180s
 
 log "Applying KServe cluster resources (ClusterServingRuntimes)..."
-kubectl apply --server-side \
+retry kubectl apply --server-side \
   -f "https://github.com/kserve/kserve/releases/download/${KSERVE_VERSION}/kserve-cluster-resources.yaml"
 
 log "KServe ready."
 
 # ── Step 4: Namespace + ambient mode enrollment ───────────────────────────────
 section "Step 4 — Namespace + ambient mesh enrollment"
-kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/namespace.yaml"
+retry kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/namespace.yaml"
 
 # ── Step 5: HuggingFace secret + InferenceServices ───────────────────────────
 section "Step 5 — HuggingFace secret + model InferenceServices"
-kubectl create secret generic hf-secret \
-  --from-literal=HF_TOKEN="${HF_TOKEN}" \
-  -n aegis-mesh \
-  --dry-run=client -o yaml | kubectl apply -f -
+apply_hf_secret() {
+  kubectl create secret generic hf-secret \
+    --from-literal=HF_TOKEN="${HF_TOKEN}" \
+    -n aegis-mesh \
+    --dry-run=client -o yaml | kubectl apply -f -
+}
+retry apply_hf_secret
 
 log "Applying InferenceServices (model download begins — 15–20 min)..."
-kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/mistral-inferenceservice.yaml"
-kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/classifier-inferenceservice.yaml"
+retry kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/mistral-inferenceservice.yaml"
+retry kubectl apply -f "${REPO_ROOT}/gitops/ai-workloads/classifier-inferenceservice.yaml"
 
 log "Waiting for Mistral-7B to become Ready..."
 until kubectl get inferenceservice mistral-7b -n aegis-mesh \
@@ -119,14 +162,14 @@ log "classifier ready."
 
 # ── Step 6: Security policies ────────────────────────────────────────────────
 section "Step 6 — Cilium policies + waypoint proxy"
-kubectl apply -f "${REPO_ROOT}/gitops/security/cilium-policy-agent.yaml"
-kubectl apply -f "${REPO_ROOT}/gitops/security/cilium-policy-supervisor.yaml"
+retry kubectl apply -f "${REPO_ROOT}/gitops/security/cilium-policy-agent.yaml"
+retry kubectl apply -f "${REPO_ROOT}/gitops/security/cilium-policy-supervisor.yaml"
 
 # Gateway API CRDs are required for the waypoint Gateway resource.
 log "Installing Kubernetes Gateway API CRDs..."
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+retry kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
 
-kubectl apply -f "${REPO_ROOT}/gitops/security/waypoint-proxy.yaml"
+retry kubectl apply -f "${REPO_ROOT}/gitops/security/waypoint-proxy.yaml"
 
 # ── Step 7: Build + push images ──────────────────────────────────────────────
 section "Step 7 — Build + push Agent and Supervisor images"
@@ -142,11 +185,11 @@ docker push "${REGISTRY}/aegis-supervisor:latest"
 
 # ── Step 8: Deploy agent + supervisor ────────────────────────────────────────
 section "Step 8 — Deploy Agent + Supervisor"
-kubectl apply -f "${REPO_ROOT}/src/agent/k8s/"
-kubectl apply -f "${REPO_ROOT}/src/supervisor/k8s/"
+retry kubectl apply -f "${REPO_ROOT}/src/agent/k8s/"
+retry kubectl apply -f "${REPO_ROOT}/src/supervisor/k8s/"
 
-kubectl rollout status deployment/aegis-agent     -n aegis-mesh --timeout=120s
-kubectl rollout status deployment/aegis-supervisor -n aegis-mesh --timeout=120s
+retry kubectl rollout status deployment/aegis-agent     -n aegis-mesh --timeout=120s
+retry kubectl rollout status deployment/aegis-supervisor -n aegis-mesh --timeout=120s
 
 # ── Step 9: NFS provisioner + FortiAIGate ────────────────────────────────────
 section "Step 9 — NFS provisioner + FortiAIGate"
@@ -162,14 +205,14 @@ helm upgrade --install nfs-server nfs-ganesha/nfs-server-provisioner \
   --set persistence.size=50Gi
 
 log "Waiting for NFS provisioner to be ready..."
-kubectl rollout status statefulset/nfs-server-nfs-server-provisioner \
+retry kubectl rollout status statefulset/nfs-server-nfs-server-provisioner \
   -n nfs-provisioner --timeout=120s
 
 if [[ ! -d "${REPO_ROOT}/gitops/security/fortiaigate/chart" ]]; then
   warn "FortiAIGate chart not found at gitops/security/fortiaigate/chart/ — skipping."
   warn "Download from https://info.fortinet.com/builds/?project_id=807, extract, and commit."
 else
-  kubectl apply -f "${REPO_ROOT}/gitops/security/fortiaigate/application.yaml"
+  retry kubectl apply -f "${REPO_ROOT}/gitops/security/fortiaigate/application.yaml"
 
   log "Waiting for FortiAIGate pods to be Running (~5 min)..."
   until [[ "$(kubectl get pods -n fortiaigate --field-selector=status.phase!=Running \

@@ -9,8 +9,8 @@ global:
 
   # License mapping: one .lic file per GKE worker node.
   licenses:
-    "gke-aegis-cluster-system-pool-83c99e06-4wc6": "files/licenses/FAIGCNSD26000104.lic"
-    "gke-aegis-cluster-system-pool-83c99e06-7zkx": "files/licenses/FAIGCNSD26000135.lic"
+    "gke-aegis-cluster-system-pool-8659e710-2qcr": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-8659e710-ctjz": "files/licenses/FAIGCNSD26000135.lic"
 
 # ── FortiAIGate image & GPU ───────────────────────────────────────────────────
 fortiaigate:
