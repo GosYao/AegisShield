@@ -7,10 +7,15 @@ global:
   security:
     allowInsecureImages: true   # Required — images come from private registry
 
-  # License mapping: one .lic file per GKE worker node.
+  # License mapping: one .lic file per GKE worker node. Updated for cluster
+  # recreate 2026-06-19 (system-pool hash 257fde24).
+  # NOTE: 3 system nodes exist but only 2 node-locked licenses — the 3rd node
+  # (…-gs88) is intentionally unmapped. If a licensed FortiAIGate component
+  # schedules there it will report "Invalid"; pin FortiAIGate to the two mapped
+  # nodes (nodeSelector/affinity) or add a 3rd license if that happens.
   licenses:
-    "gke-aegis-cluster-system-pool-8659e710-2qcr": "files/licenses/FAIGCNSD26000104.lic"
-    "gke-aegis-cluster-system-pool-8659e710-ctjz": "files/licenses/FAIGCNSD26000135.lic"
+    "gke-aegis-cluster-system-pool-257fde24-36j9": "files/licenses/FAIGCNSD26000104.lic"
+    "gke-aegis-cluster-system-pool-257fde24-41g9": "files/licenses/FAIGCNSD26000135.lic"
 
 # ── FortiAIGate image & GPU ───────────────────────────────────────────────────
 fortiaigate:
