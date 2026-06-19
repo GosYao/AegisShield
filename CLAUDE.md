@@ -66,7 +66,7 @@ AegisShield/
 |---|---|---|
 | `gitops/security/fortiaigate/chart/override-values.yaml` | Node names in `global.licenses` | GKE worker node names (`kubectl get nodes`) — **changes on every full cluster recreate** |
 
-> **Note**: `storageClass` (`nfs-rwx`) and `image.tag` (`V8.0.0-build0023`) are already set in `chart/override-values.yaml`. The only value that must be updated on each bringup is the license node name mapping — GKE randomizes the node hash suffix when the cluster is destroyed and recreated.
+> **Note**: `storageClass` (`nfs-rwx`) and `image.tag` (`V8.0.1-build0031`) are already set in `chart/override-values.yaml`. The only value that must be updated on each bringup is the license node name mapping — GKE randomizes the node hash suffix when the cluster is destroyed and recreated.
 
 ## Deployment Order
 
@@ -150,7 +150,7 @@ docker push us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/aegis-supervisor
 
 ## FortiAIGate Deployment & Configuration
 
-FortiAIGate 8.0.0 is **not** a single container image and has **no public Helm chart repository**. It is distributed as offline TAR archives and a local Helm chart by Fortinet. It deploys ~10 components: API server, WebUI, Core engine, nine AI scanner microservices, NVIDIA Triton Inference Server, PostgreSQL, Redis, License Manager, and LogD — all into its own dedicated namespace (`fortiaigate`), not `aegis-mesh`.
+FortiAIGate 8.0.1 is **not** a single container image and has **no public Helm chart repository**. It is distributed as offline TAR archives and a local Helm chart by Fortinet. It deploys ~10 components: API server, WebUI, Core engine, nine AI scanner microservices, NVIDIA Triton Inference Server, PostgreSQL, Redis, License Manager, and LogD — all into its own dedicated namespace (`fortiaigate`), not `aegis-mesh`.
 
 ### 1. Prerequisites
 
@@ -170,12 +170,15 @@ https://info.fortinet.com/builds/?project_id=807
 
 Extract the Helm chart, copy licenses, and commit to Git so ArgoCD can sync it:
 ```bash
-tar xf fortiaigate-chart-V8.0.0-*.tar
-# Note: the extracted directory name may vary (e.g. fortiaigate/ or fortiaigate-8.0.0/)
-cp -r fortiaigate/ gitops/security/fortiaigate/chart/
+tar xzf FAIG_helm_chart-V8.0.1-build0031-FORTINET.tar.gz   # extracts to fortiaigate/
+# Note: the extracted directory name may vary (e.g. fortiaigate/ or fortiaigate-8.0.1/)
+# Merge-copy the new chart OVER the committed chart. cp does not delete files that the
+# upstream chart omits (our override-values.yaml, files/licenses/*.lic), so they survive:
+cp -R fortiaigate/. gitops/security/fortiaigate/chart/
 
-# IMPORTANT: Do NOT overwrite chart/values.yaml — it contains the upstream chart defaults.
-# Our customisations live in chart/override-values.yaml (already committed).
+# IMPORTANT: Do NOT keep a hand-edited chart/values.yaml — the line above replaces it with
+# the upstream 8.0.1 defaults (correct). Our customisations live ONLY in
+# chart/override-values.yaml (already committed), which the upstream tar does not contain.
 # The ArgoCD Application references override-values.yaml via helm.valueFiles.
 
 # Copy license files into the chart so ArgoCD can deploy them
@@ -186,7 +189,7 @@ cp gitops/security/fortiaigate/files/licenses/*.lic \
 # Update node names in chart/override-values.yaml BEFORE committing:
 #   kubectl get nodes  →  replace global.licenses node names
 git add gitops/security/fortiaigate/chart/
-git commit -m "Add FortiAIGate 8.0.0 Helm chart"
+git commit -m "Upgrade FortiAIGate Helm chart to 8.0.1"
 git push
 ```
 
@@ -209,9 +212,9 @@ docker tag <source_image> us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/<n
 docker push us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo/<name>:<tag>
 ```
 
-> **triton-models and custom-triton**: keep their original image tags when pushing. The Helm chart references them by exact tag.
+> **triton-models and custom-triton**: keep their original image tags when pushing. The Helm chart references them by exact tag. In 8.0.1 these tags changed to `triton-models:0.1.6-s1` and `custom-triton:25.11-onnx-trt-agt-s1` (see `chart/templates/triton-server.yaml`) — the 8.0.1 sensitive-DLP scanner ships a new GLiNER-style model, so the old `0.1.4` / `25.11-onnx-trt-agt` images are not interchangeable.
 
-After loading, note the build tag (e.g. `V8.0.0-build0023`) and set `fortiaigate.image.tag` in `chart/override-values.yaml`.
+After loading, note the build tag (e.g. `V8.0.1-build0031`) and set `fortiaigate.image.tag` in `chart/override-values.yaml`.
 
 ### 4. Licensing
 
@@ -235,7 +238,7 @@ Key values already set (see the file for full contents):
 fortiaigate:
   image:
     repository: us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo
-    tag: V8.0.0-build0023
+    tag: V8.0.1-build0031
   gpu:
     enabled: false            # GPU nodes fully used by KServe models
 
@@ -266,7 +269,9 @@ kubectl apply -f gitops/security/fortiaigate/application.yaml
 
 ### 7. Post-Deploy Onboarding (Admin UI)
 
-After all pods are Running, log in to the FortiAIGate WebUI via the Ingress hostname and complete onboarding in this order:
+After all pods are Running, log in to the FortiAIGate WebUI and complete onboarding in this order.
+
+> **8.0.1 GUI URL change**: the WebUI now lives at `https://<ingress-external-ip>/ui` (8.0.0 served it at the bare `https://<ingress-external-ip>`). The chart's `ingress.yaml` was updated to route `/ui` → WebUI and `/` → API accordingly, so use the `/ui` path when logging in.
 
 #### Step A — Create an AI Provider
 In **Settings → AI Providers**, add an AI Provider pointing at the Agent's service endpoint:
@@ -278,7 +283,7 @@ In **AI Guard**, create a new Guard and attach:
 - **AI Provider**: the provider created above
 - **Input Guard**: enable the scanners you want to apply to *incoming* user prompts:
   - Prompt Injection scanner (detects jailbreaks and injection attempts)
-  - DLP scanner (blocks credit cards, SSNs, bank accounts via regex profiles)
+  - DLP scanner (blocks credit cards, SSNs, bank accounts, etc.). **8.0.1 entity-name change**: select the new data types — `credit_debit_card`, `ssn`, `account_number` (covers bank/IBAN), `national_id`, `tax_id`, `email`, `ipv4` — from the expanded 6-category / 35-entity taxonomy. **Upgrade caveat**: AI Guards built on 8.0.0 are auto-converted on upgrade, but `DATE_TIME` and `URL` have no 8.0.1 equivalent and are **silently dropped** — re-add equivalent custom rules if you relied on them.
   - Toxicity scanner (blocks harmful language)
   - Custom Rule scanner (add additional regex patterns as needed)
 - **Output Guard**: enable scanners to apply to *LLM responses* before returning to user:
@@ -294,6 +299,8 @@ In **AI Flow**, define the traffic routing entry point:
 - **Request Schema**: `{ "message": "string" }` (matches the agent's FastAPI request model)
 - **Routing Strategy**: Static → target the AI Guard created in Step B
 - **Deploy** the flow
+
+> **8.0.1 fix (bug 1213070)**: in 8.0.0 the AI Flow `Path` only accepted paths beginning with `/v1/` and otherwise returned 404 — meaning this documented `/chat` flow would not have worked. 8.0.1 resolves this, so `/chat` routes as written with no `/v1/` prefix workaround.
 
 Once deployed, all traffic arriving at the FortiAIGate ingress at `/chat` passes through the Input Guard before the request is forwarded to the Agent, and through the Output Guard before the response is returned to the user.
 

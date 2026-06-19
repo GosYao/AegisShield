@@ -70,6 +70,16 @@ spec:
           value: {{ .Values.core.env.maxParallelRequests | quote }}
         - name: UPSTREAM_LLM_REQUEST_TIMEOUT
           value: {{ .Values.core.env.upstreamLlmRequestTimeout | quote }}
+        # Mirrors the scanner-side truncation limit. Core does not truncate; this value is
+        # mixed into the scanner-cache key so changes to maxScanChars invalidate stale entries.
+        # SCANNER_MAX_SCAN_CHARS is the global fallback used when a scanner name is not in
+        # the per-scanner JSON map below.
+        - name: SCANNER_MAX_SCAN_CHARS
+          value: {{ .Values.scanners.env.maxScanChars | quote }}
+        - name: SCANNER_MAX_SCAN_CHARS_BY_NAME
+          value: {{ include "fortiaigate.scannerMaxCharsByName" . | quote }}
+        - name: UPSTREAM_TLS_VERIFY
+          value: {{ .Values.core.env.upstreamTls.verify | quote }}
         - name: FORTIAIGATE_LOG_LEVEL
           value: {{ .Values.fortiaigate.env.logLevel | quote }}
         {{- if .Values.tls.enabled }}

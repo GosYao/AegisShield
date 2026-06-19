@@ -20,7 +20,7 @@ User
 | Layer | Component | What It Stops |
 |---|---|---|
 | L4 Network | Cilium `CiliumNetworkPolicy` | Agent cannot reach arbitrary endpoints — egress locked to KServe, Supervisor, and approved Google APIs only |
-| L7 WAF/DLP | FortiAIGate 8.0.0 | Prompt injection patterns, PII (credit cards, SSNs), and toxic content stripped before the agent ever processes the request |
+| L7 WAF/DLP | FortiAIGate 8.0.1 | Prompt injection patterns, PII (credit cards, SSNs), and toxic content stripped before the agent ever processes the request |
 | Control Plane | Python Supervisor + Mistral-7B | Agent pre-clears every tool call; MALICIOUS classification blocks the action and increments a per-session strike counter; 3 strikes terminates the pod |
 
 ---
@@ -63,7 +63,7 @@ Two `CiliumNetworkPolicy` resources enforce least-privilege egress:
 - **Supervisor**: may only reach kube-dns, KServe (classifier), and the Kubernetes API server (for pod deletion). All ingress/egress rules are namespace-scoped to prevent cross-namespace bypass.
 
 ### FortiAIGate (`gitops/security/fortiaigate/`)
-FortiAIGate 8.0.0 acts as the single public entry point. It runs an AI Flow pipeline:
+FortiAIGate 8.0.1 acts as the single public entry point. It runs an AI Flow pipeline:
 1. **Input Guard** — scans incoming prompts for injection patterns, PII, and toxicity
 2. **Routing** — forwards clean requests to the Agent service
 3. **Output Guard** — scans LLM responses before returning to the user

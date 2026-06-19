@@ -58,10 +58,10 @@ api:
   resources:
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
     requests:
       cpu: 250m
-      memory: 256Mi
+      memory: 1Gi
 
 # Web UI Configuration
 webui:
@@ -87,6 +87,11 @@ core:
     maxParallelRequests: 100
     # Timeout in seconds for requests from AI Gateway to upstream LLM providers (e.g. OpenAI, Anthropic)
     upstreamLlmRequestTimeout: 600
+    # Outbound TLS to upstream LLM providers.
+    # 8.0.1: hard default of "trust all" so private self-signed backends work out of the box.
+    # 8.0.2+: will become user-configurable from the GUI; flip `verify` to true for strict mode.
+    upstreamTls:
+      verify: true
 
   resources:
     limits:
@@ -105,7 +110,7 @@ triton:
   resources:
     limits:
       cpu: 2000m
-      memory: 20Gi
+      memory: 25Gi
       gpuCount: 1
       gpuResourceName: "nvidia.com/gpu"  # Can be overridden for MIG: nvidia.com/mig-3g.40gb
     requests:
@@ -171,8 +176,9 @@ scanners:
   promptinjection:
     replicas: 1
     # Environment variables for promptinjection scanner
+    # CHUNK_SIZE: Tokens size of text chunks for processing(32 to 512)
+    # CHUNK_OVERLAP_SIZE: Overlap between consecutive chunks (0 to half of CHUNK_SIZE)
     env:
-      # CHUNK_OVERLAP_SIZE is limited to a maximum of half the CHUNK_SIZE. Values exceeding this limit will be adjusted automatically.
       CHUNK_SIZE: "512"
       CHUNK_OVERLAP_SIZE: "256"
     # resources:
@@ -185,7 +191,12 @@ scanners:
 
   sensitive:
     replicas: 1
-    env: {}
+    # Environment variables for Sensitive scanner
+    # CHUNK_SIZE: Tokens size of text chunks for processing(32 to 288)
+    # CHUNK_OVERLAP_SIZE: Overlap between consecutive chunks (0 to half of CHUNK_SIZE)
+    env:
+      CHUNK_SIZE: 256
+      CHUNK_OVERLAP_SIZE: 64
     resources:
       limits:
         cpu: 2000m
@@ -197,6 +208,8 @@ scanners:
   toxicity:
     replicas: 1
     # Environment variables for Toxicity scanner
+    # CHUNK_SIZE: Tokens size of text chunks for processing(32 to 512)
+    # CHUNK_OVERLAP_SIZE: Overlap between consecutive chunks (0 to half of CHUNK_SIZE)
     env:
       CHUNK_SIZE: "512"
       CHUNK_OVERLAP_SIZE: "256"
@@ -210,7 +223,12 @@ scanners:
 
   anonymize:
     replicas: 1
-    env: {}
+    # Environment variables for Anonymize scanner
+    # CHUNK_SIZE: Tokens size of text chunks for processing(32 to 288)
+    # CHUNK_OVERLAP_SIZE: Overlap between consecutive chunks (0 to half of CHUNK_SIZE)
+    env:
+      CHUNK_SIZE: 256
+      CHUNK_OVERLAP_SIZE: 64
     resources:
       limits:
         cpu: 2000m

@@ -1,7 +1,7 @@
 annotations:
   category: Security
 apiVersion: v2
-appVersion: 8.0.0
+appVersion: 8.0.1
 dependencies:
 - condition: postgresql.enabled
   name: postgresql
@@ -22,4 +22,4 @@ maintainers:
   name: FortiAIGate Team
 name: fortiaigate
 type: application
-version: 8.0.0
+version: 8.0.1

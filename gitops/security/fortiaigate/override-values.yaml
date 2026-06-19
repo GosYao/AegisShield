@@ -1,4 +1,4 @@
-# FortiAIGate 8.0.0 — Helm values override
+# FortiAIGate 8.0.1 — Helm values override
 # Place this file inside gitops/security/fortiaigate/chart/ alongside Chart.yaml.
 # ArgoCD will use it as the values override automatically.
 #
@@ -23,7 +23,7 @@ global:
 fortiaigate:
   image:
     repository: us-central1-docker.pkg.dev/gyao-bde-demo/aegis-repo
-    tag: V8.0.0-build0023   # e.g. V8.0.0-build0004 — check after docker load
+    tag: V8.0.1-build0031   # e.g. V8.0.1-build0031 — check after docker load
     pullPolicy: IfNotPresent
     pullSecrets: []           # Add imagePullSecret name if registry needs auth
 

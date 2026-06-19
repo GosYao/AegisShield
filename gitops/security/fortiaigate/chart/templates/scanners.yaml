@@ -104,6 +104,18 @@ spec:
           value: {{ $value | quote }}
         {{- end }}
         {{- end }}
+        {{- if and (eq $scanner "sensitive") $.Values.scanners.sensitive.env }}
+        {{- range $key, $value := $.Values.scanners.sensitive.env }}
+        - name: {{ $key | quote }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+        {{- if and (eq $scanner "anonymize") $.Values.scanners.anonymize.env }}
+        {{- range $key, $value := $.Values.scanners.anonymize.env }}
+        - name: {{ $key | quote }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
         # Triton server URL for inference with DNS-based load balancing
         - name: TRITON_URL
           value: "dns:///triton-server:8001"

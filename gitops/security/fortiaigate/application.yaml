@@ -1,4 +1,4 @@
-# ArgoCD Application for FortiAIGate 8.0.0
+# ArgoCD Application for FortiAIGate 8.0.1
 #
 # IMPORTANT: FortiAIGate does NOT have a public Helm repository.
 # The Helm chart is distributed as a local TAR archive by Fortinet.
