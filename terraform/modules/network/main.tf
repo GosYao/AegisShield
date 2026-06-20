@@ -1,6 +1,6 @@
 resource "google_compute_network" "aegis_vpc" {
   name                    = "aegis-vpc"
-  auto_create_subnetworks = false
+  auto_create_subnetworks = true
   project                 = var.project_id
 }
 
